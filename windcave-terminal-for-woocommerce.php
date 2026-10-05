@@ -80,6 +80,7 @@ add_action( 'init', __NAMESPACE__ . '\\load_textdomain' );
  */
 function init(): void {
 	add_filter( 'woocommerce_payment_gateways', array( Gateway::class, 'register_gateway' ) );
+	new AjaxHandler();
 }
 add_action( 'plugins_loaded', __NAMESPACE__ . '\\init', 11 );
 
