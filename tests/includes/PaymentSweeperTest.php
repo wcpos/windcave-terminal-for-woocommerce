@@ -26,6 +26,7 @@ class PaymentSweeperTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+		\WCPOS\WooCommercePOS\WindcaveTerminal\Logger::$threshold = 'off';
 		if ( ! defined( 'MINUTE_IN_SECONDS' ) ) {
 			define( 'MINUTE_IN_SECONDS', 60 );
 		}
@@ -41,6 +42,8 @@ class PaymentSweeperTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		\WCPOS\WooCommercePOS\WindcaveTerminal\Logger::$threshold = null;
+		\WCPOS\WooCommercePOS\WindcaveTerminal\Logger::$logger = null;
 		FakeOrder::$rows = array();
 		FakeOrder::$completion_calls = array();
 		Monkey\tearDown();

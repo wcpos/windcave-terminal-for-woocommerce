@@ -24,6 +24,7 @@ class OrderCompletionTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+		\WCPOS\WooCommercePOS\WindcaveTerminal\Logger::$threshold = 'off';
 		$this->previous_wpdb = $GLOBALS['wpdb'] ?? null;
 		$GLOBALS['wpdb'] = new FakeWpdb();
 		FakeOrder::$rows = array();
@@ -40,6 +41,8 @@ class OrderCompletionTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		\WCPOS\WooCommercePOS\WindcaveTerminal\Logger::$threshold = null;
+		\WCPOS\WooCommercePOS\WindcaveTerminal\Logger::$logger = null;
 		PaymentLock::release( 42, 'complete_payment' );
 		$GLOBALS['wpdb'] = $this->previous_wpdb;
 		FakeOrder::$rows = array();

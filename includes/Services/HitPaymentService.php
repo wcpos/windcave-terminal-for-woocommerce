@@ -27,6 +27,11 @@ class HitPaymentService {
 	private const PJ_GRACE_SECONDS = 30;
 
 	/**
+	 * Network-class ReCo codes in Windcave's HIT list: transient, keep polling.
+	 */
+	private const NETWORK_RECOS = array( 'PD', 'PE', 'PF' );
+
+	/**
 	 * HIT transport.
 	 *
 	 * @var HitClient
@@ -97,13 +102,24 @@ class HitPaymentService {
 				if ( $order->is_paid() ) {
 					return $this->result( 'already_paid', $current['txn_ref'] ?? '' );
 				}
+				if ( null !== $current && 'approved' === $current['status'] ) {
+					Logger::log(
+						'Payment start refused: approved payment not applied.',
+						array(
+							'order_id' => (int) $order->get_id(),
+							'txn_ref'  => $current['txn_ref'],
+						),
+						'error'
+					);
+					return $this->result( 'verification_failed', $current['txn_ref'], null, __( 'Windcave already approved a payment for this order that could not be applied. Check the Windcave portal and the order notes before taking payment again.', 'windcave-terminal-for-woocommerce' ) );
+				}
 				if ( null !== $current && PaymentAttempt::is_pending( $current['status'] ) ) {
 					$result = $this->check( $order, $current['txn_ref'], $current['station'], 'start_reuse' );
 					if ( 'pending' === $result['status'] ) {
 						$result['message'] = __( 'Resuming the payment already in progress on the terminal.', 'windcave-terminal-for-woocommerce' );
 						return $result;
 					}
-					if ( in_array( $result['status'], array( 'paid', 'verification_failed', 'conflict' ), true ) ) {
+					if ( in_array( $result['status'], array( 'paid', 'verification_failed', 'conflict', 'error' ), true ) ) {
 						return $result;
 					}
 				}
@@ -139,6 +155,24 @@ class HitPaymentService {
 					PaymentAttempt::update( $order, $txn_ref, 'declined' );
 					$order->add_order_note( "Windcave Terminal: TxnRef {$txn_ref} not started, the terminal is still finishing an earlier transaction (PC)." );
 					return $this->result( 'station_busy', $txn_ref, $r, __( 'The terminal is still finishing an earlier transaction. Complete or cancel it on the terminal, then try again.', 'windcave-terminal-for-woocommerce' ) );
+				}
+				$reco = $r->reco();
+				if ( '' !== $reco && '00' !== $reco && ! in_array( $reco, self::NETWORK_RECOS, true ) && 'PC' !== $reco && 'PJ' !== $reco && ! $r->complete() ) {
+					$dl1 = $r->display_line_1();
+					PaymentAttempt::update( $order, $txn_ref, 'declined' );
+					$order->add_order_note( "Windcave Terminal: Purchase for TxnRef {$txn_ref} refused by Windcave (ReCo {$reco}: {$dl1})." );
+					Logger::log(
+						'HIT Purchase refused.',
+						array(
+							'order_id' => (int) $order->get_id(),
+							'txn_ref'  => $txn_ref,
+							'reco'     => $reco,
+							'dl1'      => $dl1,
+						),
+						'error'
+					);
+					/* translators: %1$s: Windcave response code, %2$s: Terminal display message. */
+					return $this->result( 'declined', $txn_ref, $r, sprintf( __( 'Windcave refused the payment (code %1$s): %2$s', 'windcave-terminal-for-woocommerce' ), $reco, $dl1 ? $dl1 : $r->display_line_2() ) );
 				}
 				return $this->apply( $order, $txn_ref, $r, 'start' );
 			},
@@ -352,6 +386,23 @@ class HitPaymentService {
 	 * @return array Payment result.
 	 */
 	private function check( $order, string $txn_ref, string $station, string $source ): array {
+		$attempt = PaymentAttempt::find( $order, $txn_ref );
+		if ( null !== $attempt && $attempt['environment'] !== $this->settings->environment() ) {
+			Logger::log(
+				'Status skipped: environment changed since the attempt started',
+				array(
+					'order_id' => (int) $order->get_id(),
+					'txn_ref' => $txn_ref,
+					'attempt_environment' => $attempt['environment'],
+					'settings_environment' => $this->settings->environment(),
+					'source' => $source,
+				),
+				'error'
+			);
+			$label = 'uat' === $attempt['environment'] ? 'UAT' : 'production';
+			/* translators: %1$s: The Windcave environment where the payment started. */
+			return $this->result( 'error', $txn_ref, null, sprintf( __( 'This payment was started in %1$s. Switch the Windcave environment back to %1$s to finish it, or check it in the Windcave portal.', 'windcave-terminal-for-woocommerce' ), $label ) );
+		}
 		$r = $this->client->status( $station, $txn_ref );
 		if ( $r instanceof \WP_Error ) {
 			Logger::log(
@@ -401,6 +452,22 @@ class HitPaymentService {
 			PaymentAttempt::update( $order, $txn_ref, 'declined' );
 			$order->add_order_note( "Windcave Terminal: Windcave has no record of TxnRef {$txn_ref} (PJ); marked declined." );
 			return $this->result( 'declined', $txn_ref, $r, __( 'Windcave has no record of this transaction. Start the payment again.', 'windcave-terminal-for-woocommerce' ), $context );
+		}
+		$reco = $r->reco();
+		if ( '' !== $reco && '00' !== $reco && ! in_array( $reco, self::NETWORK_RECOS, true ) && 'PC' !== $reco && 'PJ' !== $reco && ! $r->complete() ) {
+			$dl1 = $r->display_line_1();
+			Logger::log(
+				'HIT Status reported an error.',
+				array(
+					'order_id' => (int) $order->get_id(),
+					'txn_ref'  => $txn_ref,
+					'reco'     => $reco,
+					'dl1'      => $dl1,
+				),
+				'error'
+			);
+			/* translators: %1$s: Windcave response code, %2$s: Terminal display message. */
+			return $this->result( 'error', $txn_ref, $r, sprintf( __( 'Windcave reported code %1$s: %2$s. Check the Station ID and HIT settings, or set the payment aside.', 'windcave-terminal-for-woocommerce' ), $reco, $dl1 ) );
 		}
 		if ( ! $r->complete() ) {
 			return $this->result( 'pending', $txn_ref, $r, '', $context );

@@ -152,10 +152,19 @@ class AjaxHandler {
 		try {
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Access is checked using capabilities or a signed order token below.
 			$order_id = absint( $_POST['order_id'] ?? 0 );
+			$context  = array(
+				'operation' => $operation,
+				'order_id' => $order_id,
+				// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Only record whether the credential was supplied.
+				'credential_sent' => ! empty( $_POST['order_token'] ),
+				'logged_in' => function_exists( 'is_user_logged_in' ) ? is_user_logged_in() : null,
+			);
 			if ( ! $order_id ) {
+				Logger::log( 'Windcave Terminal AJAX request refused.', $context + array( 'reason' => 'missing_order_id' ), 'warning' );
 				wp_send_json_error( __( 'Order ID is required.', 'windcave-terminal-for-woocommerce' ), 400 );
 			}
 			if ( ! $this->can_access_order( $order_id ) ) {
+				Logger::log( 'Windcave Terminal AJAX request refused.', $context + array( 'reason' => 'unauthorised' ), 'warning' );
 				wp_send_json_error( __( 'Unauthorized request.', 'windcave-terminal-for-woocommerce' ), 403 );
 			}
 			Logger::log(
@@ -169,14 +178,7 @@ class AjaxHandler {
 			);
 			$order = wc_get_order( $order_id );
 			if ( ! $order ) {
-				Logger::log(
-					'Windcave Terminal AJAX request used invalid order.',
-					array(
-						'operation' => $operation,
-						'order_id'  => $order_id,
-					),
-					'error'
-				);
+				Logger::log( 'Windcave Terminal AJAX request refused.', $context + array( 'reason' => 'invalid_order' ), 'warning' );
 				wp_send_json_error( __( 'Invalid order.', 'windcave-terminal-for-woocommerce' ), 404 );
 			}
 			$result = $callback( $order );
@@ -234,6 +236,19 @@ class AjaxHandler {
 	 */
 	private function require_gateway_enabled(): void {
 		if ( ! $this->settings()->active() ) {
+			Logger::log(
+				'Windcave Terminal AJAX request refused.',
+				array(
+					'operation' => 'start_payment',
+					// phpcs:ignore WordPress.Security.NonceVerification.Missing -- with_order has already authorised this request.
+					'order_id' => absint( $_POST['order_id'] ?? 0 ),
+					'reason' => 'gateway_disabled',
+					// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Only record whether the credential was supplied.
+					'credential_sent' => ! empty( $_POST['order_token'] ),
+					'logged_in' => function_exists( 'is_user_logged_in' ) ? is_user_logged_in() : null,
+				),
+				'warning'
+			);
 			wp_send_json_error( __( 'Windcave Terminal is disabled.', 'windcave-terminal-for-woocommerce' ), 403 );
 		}
 	}

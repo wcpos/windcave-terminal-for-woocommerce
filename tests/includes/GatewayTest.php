@@ -30,6 +30,7 @@ class GatewayTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+		\WCPOS\WooCommercePOS\WindcaveTerminal\Logger::$threshold = 'off';
 		Functions\when( '__' )->returnArg();
 		Functions\when( 'get_option' )->justReturn( array() );
 		Functions\when( 'add_action' )->justReturn( true );
@@ -59,6 +60,8 @@ class GatewayTest extends TestCase {
 	 * Clear the function stubs.
 	 */
 	protected function tearDown(): void {
+		\WCPOS\WooCommercePOS\WindcaveTerminal\Logger::$threshold = null;
+		\WCPOS\WooCommercePOS\WindcaveTerminal\Logger::$logger = null;
 		$GLOBALS['wp'] = $this->previous_wp;
 		FakeOrder::$rows = array();
 		FakeOrder::$completion_calls = array();
@@ -181,6 +184,22 @@ class GatewayTest extends TestCase {
 		$this->assertStringContainsString( '<p class="wctwc-prompt-line1"></p><p class="wctwc-prompt-line2"></p><div class="wctwc-prompt-buttons"></div>', $html );
 		$this->assertStringContainsString( '<div class="wctwc-payment-status" role="status" aria-live="polite"></div>', $html );
 		$this->assertStringContainsString( 'wctwc-toggle-log', $html );
+	}
+
+	public function test_payment_fields_requires_explicit_choice_with_multiple_stations_and_no_default(): void {
+		Functions\when( 'get_option' )->justReturn( array( 'stations' => "S1\nS2" ) );
+		$html = $this->render_payment_fields();
+		$this->assertStringContainsString( '<option value="" selected disabled>— Select a terminal —</option><option value="S1">S1</option><option value="S2">S2</option>', $html );
+		$this->assertSame( 1, substr_count( $html, ' selected' ) );
+		$this->assertStringContainsString( '<select id="wctwc-station-select" class="wctwc-station-select">', $html );
+	}
+
+	public function test_payment_fields_single_station_is_preselected(): void {
+		Functions\when( 'get_option' )->justReturn( array( 'stations' => 'S1' ) );
+		$html = $this->render_payment_fields();
+		$this->assertStringContainsString( '<option value="S1" selected>S1</option>', $html );
+		$this->assertSame( 1, substr_count( $html, '<option' ) );
+		$this->assertStringNotContainsString( 'Select a terminal', $html );
 	}
 
 	public function test_payment_fields_locked_station_select_is_disabled(): void {

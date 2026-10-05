@@ -214,8 +214,11 @@ class Gateway extends \WC_Payment_Gateway {
 			echo '<label for="wctwc-station-select">' . esc_html__( 'Terminal', 'windcave-terminal-for-woocommerce' ) . '</label>';
 			echo '<select id="wctwc-station-select" class="wctwc-station-select"' . ( $locked ? ' disabled' : '' ) . '>';
 			$stations = $settings->station_ids();
+			if ( ! $locked && '' === $settings->default_station() && count( $stations ) >= 2 ) {
+				echo '<option value="" selected disabled>' . esc_html__( '— Select a terminal —', 'windcave-terminal-for-woocommerce' ) . '</option>';
+			}
 			foreach ( $stations as $station ) {
-				echo '<option value="' . esc_attr( $station ) . '"' . ( $station === $settings->default_station() ? ' selected' : '' ) . '>' . esc_html( $station ) . '</option>';
+				echo '<option value="' . esc_attr( $station ) . '"' . ( 1 === count( $stations ) || $station === $settings->default_station() ? ' selected' : '' ) . '>' . esc_html( $station ) . '</option>';
 			}
 			if ( empty( $stations ) ) {
 				echo '<option disabled>' . esc_html__( 'No Station IDs configured', 'windcave-terminal-for-woocommerce' ) . '</option>';
