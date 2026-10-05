@@ -29,6 +29,15 @@ permissions:
   contents: read
 
 jobs:
+  js-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: npm test
+
   php-lint:
     name: PHP Lint
     runs-on: ubuntu-latest
