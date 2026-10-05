@@ -1,0 +1,12 @@
+<Scr>
+  <TxnType>Status</TxnType>
+  <TxnRef>125</TxnRef>
+  <StatusId>4</StatusId>
+  <TxnStatusId>7</TxnStatusId>
+  <Complete>0</Complete>
+  <ReCo/>
+  <DL1>SIGNATURE OK?</DL1>
+  <DL2>CHECK SIGNATURE</DL2>
+  <B1 en="1">YES</B1>
+  <B2 en="1">NO</B2>
+</Scr>

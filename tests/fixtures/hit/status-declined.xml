@@ -1,0 +1,19 @@
+<Scr>
+  <TxnType>Status</TxnType>
+  <TxnRef>124</TxnRef>
+  <StatusId>6</StatusId>
+  <TxnStatusId>8</TxnStatusId>
+  <Complete>1</Complete>
+  <Result>
+    <AP>0</AP>
+    <RC>51</RC>
+    <CN>411111******1111</CN>
+    <CT>Visa</CT>
+    <AmtA>176</AmtA>
+  </Result>
+  <ReCo></ReCo>
+  <DL1>DECLINED</DL1>
+  <DL2></DL2>
+  <B1 en="0"/>
+  <B2 en="0"/>
+</Scr>
