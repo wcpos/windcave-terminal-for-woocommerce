@@ -1,0 +1,10 @@
+/vendor/
+/composer.lock
+/.DS_Store
+/.phpunit.result.cache
+/.worktrees/
+/worktrees/
+*.zip
+tests/ui-preview/index.html
+tests/ui-preview/index-locked.html
+/.claude/

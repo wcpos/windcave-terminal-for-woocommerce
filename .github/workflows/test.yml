@@ -1,0 +1,75 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'languages/**'
+      - 'LICENSE'
+      - '.editorconfig'
+      - '.gitignore'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'languages/**'
+      - 'LICENSE'
+      - '.editorconfig'
+      - '.gitignore'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  php-lint:
+    name: PHP Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: json, mbstring
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Run PHPCS
+        run: composer lint -- --report=summary
+
+  php-tests:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    needs: php-lint
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.2', '8.3', '8.4']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: json, mbstring
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Run PHPUnit tests
+        run: composer test

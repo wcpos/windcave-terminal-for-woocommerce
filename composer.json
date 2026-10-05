@@ -1,0 +1,45 @@
+{
+  "name": "wcpos/windcave-terminal-for-woocommerce",
+  "description": "Windcave Terminal integration for WooCommerce POS.",
+  "type": "wordpress-plugin",
+  "license": "GPL-3.0-or-later",
+  "require": {
+    "php": ">=7.4",
+    "ext-dom": "*",
+    "ext-libxml": "*"
+  },
+  "require-dev": {
+    "brain/monkey": "^2.7",
+    "mockery/mockery": "^1.6",
+    "phpunit/phpunit": "^9.6",
+    "yoast/phpunit-polyfills": "^4.0",
+    "squizlabs/php_codesniffer": "^3.0",
+    "wp-coding-standards/wpcs": "^3.0",
+    "woocommerce/woocommerce-sniffs": "^2.0",
+    "phpcompatibility/phpcompatibility-wp": "^2.0",
+    "dealerdirect/phpcodesniffer-composer-installer": "^1.0"
+  },
+  "config": {
+    "platform": {
+      "php": "7.4"
+    },
+    "allow-plugins": {
+      "dealerdirect/phpcodesniffer-composer-installer": true
+    }
+  },
+  "scripts": {
+    "lint": "phpcs --standard=./.phpcs.xml.dist",
+    "format": "phpcbf --standard=./.phpcs.xml.dist --report-summary --report-source",
+    "test": "phpunit --configuration phpunit.xml.dist"
+  },
+  "autoload": {
+    "psr-4": {
+      "WCPOS\\WooCommercePOS\\WindcaveTerminal\\": "includes/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "WCPOS\\WooCommercePOS\\WindcaveTerminal\\Tests\\": "tests/includes/"
+    }
+  }
+}
