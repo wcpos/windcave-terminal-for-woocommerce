@@ -95,7 +95,7 @@ class HitPaymentServiceTest extends TestCase {
 
 	public function test_start_sends_amount_currency_and_station_and_returns_prompt(): void {
 		$this->client->shouldReceive( 'purchase' )->once()
-			->with( 'S1', Mockery::type( 'string' ), '1.00', 'NZD', 'Order #42' )
+			->with( 'S1', Mockery::type( 'string' ), '1.00', 'NZD', 'Order #42', '' )
 			->andReturn( $this->response( 'status-in-progress.xml' ) );
 
 		$result = $this->service->start( $this->order );
@@ -106,6 +106,35 @@ class HitPaymentServiceTest extends TestCase {
 		$this->assertFalse( $result['retry_allowed'] );
 		$this->assertSame( '', $result['message'] );
 		$this->assertSame( 1, $this->order->save_calls );
+	}
+
+	public function test_start_passes_fprn_url_when_enabled(): void {
+		$this->options['fprn_enabled'] = 'yes';
+		Functions\expect( 'wp_salt' )->once()->with( 'auth' )->andReturn( 'test-auth-salt' );
+		Functions\expect( 'admin_url' )->once()->with( 'admin-ajax.php' )->andReturn( 'https://shop.test/wp-admin/admin-ajax.php' );
+		$sig = substr( hash_hmac( 'sha256', 'wctwc_fprn_42', 'test-auth-salt' ), 0, 32 );
+		Functions\expect( 'add_query_arg' )->once()
+			->with( array( 'action' => 'wctwc_fprn', 'order_id' => 42, 'sig' => $sig ), 'https://shop.test/wp-admin/admin-ajax.php' )
+			->andReturnUsing( function ( $args, $url ) { return $url . '?' . http_build_query( $args ); } );
+		$this->client->shouldReceive( 'purchase' )->once()
+			->with( 'S1', Mockery::type( 'string' ), '1.00', 'NZD', 'Order #42', 'https://shop.test/wp-admin/admin-ajax.php?action=wctwc_fprn&order_id=42&sig=' . $sig )
+			->andReturn( $this->response( 'status-in-progress.xml' ) );
+
+		$service = new HitPaymentService( $this->client, new Settings( $this->options ) );
+		$this->assertSame( 'pending', $service->start( $this->order )['status'] );
+	}
+
+	public function test_start_passes_empty_notify_url_when_disabled(): void {
+		$this->options['fprn_enabled'] = 'no';
+		Functions\expect( 'wp_salt' )->never();
+		Functions\expect( 'admin_url' )->never();
+		Functions\expect( 'add_query_arg' )->never();
+		$this->client->shouldReceive( 'purchase' )->once()
+			->with( 'S1', Mockery::type( 'string' ), '1.00', 'NZD', 'Order #42', '' )
+			->andReturn( $this->response( 'status-in-progress.xml' ) );
+
+		$service = new HitPaymentService( $this->client, new Settings( $this->options ) );
+		$this->assertSame( 'pending', $service->start( $this->order )['status'] );
 	}
 
 	public function test_start_rejects_unknown_station(): void {
@@ -126,7 +155,7 @@ class HitPaymentServiceTest extends TestCase {
 		$this->options['lock_station'] = 'yes';
 		$service = new HitPaymentService( $this->client, new Settings( $this->options ) );
 		$this->client->shouldReceive( 'purchase' )->once()
-			->with( 'S1', Mockery::type( 'string' ), '1.00', 'NZD', 'Order #42' )
+			->with( 'S1', Mockery::type( 'string' ), '1.00', 'NZD', 'Order #42', '' )
 			->andReturn( $this->response( 'status-in-progress.xml' ) );
 
 		$result = $service->start( $this->order, 'S2' );

@@ -68,6 +68,14 @@ function wctwc_activate(): void {
 register_activation_hook( __FILE__, __NAMESPACE__ . '\\wctwc_activate' );
 
 /**
+ * Remove the payment sweep on deactivation.
+ */
+function wctwc_deactivate(): void {
+	PaymentSweeper::unschedule();
+}
+register_deactivation_hook( __FILE__, __NAMESPACE__ . '\\wctwc_deactivate' );
+
+/**
  * Load plugin translations.
  */
 function load_textdomain(): void {
@@ -81,6 +89,8 @@ add_action( 'init', __NAMESPACE__ . '\\load_textdomain' );
 function init(): void {
 	add_filter( 'woocommerce_payment_gateways', array( Gateway::class, 'register_gateway' ) );
 	new AjaxHandler();
+	new FprnHandler();
+	new PaymentSweeper();
 }
 add_action( 'plugins_loaded', __NAMESPACE__ . '\\init', 11 );
 

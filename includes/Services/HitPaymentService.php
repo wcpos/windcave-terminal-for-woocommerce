@@ -7,6 +7,7 @@
 
 namespace WCPOS\WooCommercePOS\WindcaveTerminal\Services;
 
+use WCPOS\WooCommercePOS\WindcaveTerminal\FprnHandler;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Logger;
 use WCPOS\WooCommercePOS\WindcaveTerminal\OrderCompletion;
 use WCPOS\WooCommercePOS\WindcaveTerminal\PaymentAttempt;
@@ -89,7 +90,8 @@ class HitPaymentService {
 				$amount   = number_format( (float) $order->get_total(), 2, '.', '' );
 				$currency = strtoupper( $order->get_currency() );
 				PaymentAttempt::record_new( $order, $txn_ref, $station, $amount, $currency, $this->settings->environment() );
-				$r = $this->client->purchase( $station, $txn_ref, $amount, $currency, 'Order #' . $order->get_order_number() );
+				$notify_url = $this->settings->fprn_enabled() ? FprnHandler::url( $order ) : '';
+				$r          = $this->client->purchase( $station, $txn_ref, $amount, $currency, 'Order #' . $order->get_order_number(), $notify_url );
 				if ( $r instanceof \WP_Error ) {
 					Logger::log( 'HIT Purchase transport error.', array(), 'warning' );
 					return $this->result( 'pending', $txn_ref, null, __( 'Could not reach Windcave. Checking the terminal status…', 'windcave-terminal-for-woocommerce' ) );

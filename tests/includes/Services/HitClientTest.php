@@ -130,6 +130,40 @@ namespace WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Services {
 			$this->assertSame( WCTWC_VERSION, $elements[7]->textContent );
 		}
 
+		public function test_purchase_with_notify_url_adds_url_success_and_fail_after_mref(): void {
+			$body = '';
+			Functions\expect( 'wp_remote_post' )->once()->andReturnUsing(
+				function ( $url, $args ) use ( &$body ) {
+					$body = $args['body'];
+					return array();
+				}
+			);
+			$notify_url = 'https://shop.test/wp-admin/admin-ajax.php?action=wctwc_fprn&order_id=42&sig=abc';
+			( new HitClient( $this->settings ) )->purchase( 'station1', 'ref1', '12.50', 'NZD', 'merchant1', $notify_url );
+
+			$document = new DOMDocument();
+			$this->assertTrue( $document->loadXML( $body ) );
+			$elements = iterator_to_array( $document->documentElement->childNodes );
+			$this->assertSame( array( 'Amount', 'Cur', 'TxnType', 'Station', 'TxnRef', 'DeviceId', 'PosName', 'PosVersion', 'MRef', 'UrlSuccess', 'UrlFail' ), array_map( function ( $element ) { return $element->nodeName; }, $elements ) );
+			$this->assertSame( $notify_url, $elements[9]->textContent );
+			$this->assertSame( $notify_url, $elements[10]->textContent );
+		}
+
+		public function test_purchase_without_notify_url_is_unchanged(): void {
+			$bodies = array();
+			Functions\expect( 'wp_remote_post' )->twice()->andReturnUsing(
+				function ( $url, $args ) use ( &$bodies ) {
+					$bodies[] = $args['body'];
+					return array();
+				}
+			);
+			$client = new HitClient( $this->settings );
+			$client->purchase( 'station1', 'ref1', '12.50', 'NZD', 'merchant1' );
+			$client->purchase( 'station1', 'ref1', '12.50', 'NZD', 'merchant1', '' );
+			$expected = '<Scr action="doScrHIT" user="user1" key="key&amp;1"><Amount>12.50</Amount><Cur>NZD</Cur><TxnType>Purchase</TxnType><Station>station1</Station><TxnRef>ref1</TxnRef><DeviceId>WCPOS</DeviceId><PosName>WCPOS</PosName><PosVersion>' . WCTWC_VERSION . '</PosVersion><MRef>merchant1</MRef></Scr>';
+			$this->assertSame( array( $expected, $expected ), $bodies );
+		}
+
 		/**
 		 * A configured vendor ID follows the POS version.
 		 */
