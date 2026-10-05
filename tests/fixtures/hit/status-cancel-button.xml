@@ -1,0 +1,12 @@
+<Scr>
+  <TxnType>Status</TxnType>
+  <TxnRef>127</TxnRef>
+  <StatusId>4</StatusId>
+  <TxnStatusId>2</TxnStatusId>
+  <Complete>0</Complete>
+  <ReCo/>
+  <DL1>PRESENT CARD</DL1>
+  <DL2>NZD 1.00</DL2>
+  <B1 en="0"/>
+  <B2 en="1">CANCEL</B2>
+</Scr>
