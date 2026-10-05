@@ -38,6 +38,7 @@ class FprnHandlerTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+		\WCPOS\WooCommercePOS\WindcaveTerminal\Logger::$threshold = 'off';
 		$this->previous_get  = $_GET;
 		$this->previous_post = $_POST;
 		FakeOrder::$rows = array();
@@ -66,6 +67,8 @@ class FprnHandlerTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		\WCPOS\WooCommercePOS\WindcaveTerminal\Logger::$threshold = null;
+		\WCPOS\WooCommercePOS\WindcaveTerminal\Logger::$logger = null;
 		$_GET  = $this->previous_get;
 		$_POST = $this->previous_post;
 		FakeOrder::$rows = array();

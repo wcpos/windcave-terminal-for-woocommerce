@@ -51,6 +51,10 @@ spl_autoload_register(
  */
 function wctwc_activate(): void {
 	if ( PHP_VERSION_ID >= WCTWC_MINIMUM_PHP_VERSION_ID ) {
+		if ( ! class_exists( 'DOMDocument' ) ) {
+			deactivate_plugins( plugin_basename( __FILE__ ) );
+			wp_die( esc_html__( 'Windcave Terminal for WooCommerce requires the PHP DOM extension (php-xml). Ask your host to enable it.', 'windcave-terminal-for-woocommerce' ) );
+		}
 		Logger::log( 'Plugin activated', Logger::environment(), 'info' );
 		return;
 	}

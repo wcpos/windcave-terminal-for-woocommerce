@@ -180,6 +180,48 @@ class HitPaymentServiceTest extends TestCase {
 		$this->assertSame( 1, $this->order->save_calls );
 	}
 
+	public function test_start_refuses_new_purchase_when_current_attempt_approved_but_unpaid(): void {
+		$this->order = new FakeOrder( 42, '2.00', 'NZD' );
+		$this->client->shouldReceive( 'purchase' )->once()->andReturn( $this->response( 'status-in-progress.xml' ) );
+		$first = $this->service->start( $this->order );
+		$this->client->shouldReceive( 'status' )->once()->with( 'S1', $first['txn_ref'] )->andReturn( $this->response( 'status-approved.xml' ) );
+		$this->assertSame( 'verification_failed', $this->service->poll( $this->order )['status'] );
+		$this->assertSame( 'approved', PaymentAttempt::current( $this->order )['status'] );
+		$this->assertFalse( $this->order->is_paid() );
+		$history = PaymentAttempt::history( $this->order );
+		$saves = $this->order->save_calls;
+
+		$result = $this->service->start( $this->order );
+		$this->assertSame( 'verification_failed', $result['status'] );
+		$this->assertSame( $first['txn_ref'], $result['txn_ref'] );
+		$this->assertFalse( $result['retry_allowed'] );
+		$this->assertSame( 'Windcave already approved a payment for this order that could not be applied. Check the Windcave portal and the order notes before taking payment again.', $result['message'] );
+		$this->assertSame( $history, PaymentAttempt::history( new FakeOrder( 42 ) ) );
+		$this->assertSame( $saves, $this->order->save_calls );
+	}
+
+	public function test_start_po_reco_declines_with_code_in_message(): void {
+		// Constructed fixture: PO is invalid Station ID in Windcave's HIT ReCo list.
+		$this->client->shouldReceive( 'purchase' )->once()->andReturn( $this->response( 'reco-po.xml' ) );
+		$result = $this->service->start( $this->order );
+		$this->assertSame( 'declined', $result['status'] );
+		$this->assertTrue( $result['retry_allowed'] );
+		$this->assertSame( 'Windcave refused the payment (code PO): INVALID STATION', $result['message'] );
+		$this->assertSame( 'declined', PaymentAttempt::current( $this->order )['status'] );
+		$this->assertSame( 'declined', PaymentAttempt::find( new FakeOrder( 42 ), $result['txn_ref'] )['status'] );
+		$this->assertSame( 'Windcave Terminal: Purchase for TxnRef ' . $result['txn_ref'] . ' refused by Windcave (ReCo PO: INVALID STATION).', $this->order->notes[0]['note'] );
+	}
+
+	public function test_start_pj_purchase_reply_uses_grace(): void {
+		$this->client->shouldReceive( 'purchase' )->once()->andReturn( $this->response( 'reco-pj.xml' ) );
+		$result = $this->service->start( $this->order );
+		$this->assertSame( 'pending', $result['status'] );
+		$this->assertSame( 'Waiting for Windcave to register the transaction…', $result['message'] );
+		$this->assertSame( 'pending', PaymentAttempt::current( $this->order )['status'] );
+		$this->assertSame( 1, $this->order->save_calls );
+		$this->assertSame( array(), $this->order->notes );
+	}
+
 	public function test_start_transport_error_keeps_attempt_pending(): void {
 		$this->client->shouldReceive( 'purchase' )->once()->andReturn( new \WP_Error( 'network_down', 'Network unavailable.' ) );
 		$this->client->shouldNotReceive( 'status' );
@@ -190,6 +232,23 @@ class HitPaymentServiceTest extends TestCase {
 		$this->assertSame( 'Could not reach Windcave. Checking the terminal status…', $result['message'] );
 		$this->assertSame( 'pending', PaymentAttempt::current( $this->order )['status'] );
 		$this->assertSame( 'pending', PaymentAttempt::find( new FakeOrder( 42 ), $result['txn_ref'] )['status'] );
+		$this->assertSame( array(), $this->order->notes );
+	}
+
+	public function test_start_does_not_replace_pending_attempt_from_other_environment(): void {
+		$this->record_attempt();
+		$this->options['environment'] = 'production';
+		$service = new HitPaymentService( $this->client, new Settings( $this->options ) );
+		$history = PaymentAttempt::history( $this->order );
+		$this->client->shouldNotReceive( 'status' );
+		$this->client->shouldNotReceive( 'purchase' );
+
+		$result = $service->start( $this->order );
+		$this->assertSame( 'error', $result['status'] );
+		$this->assertSame( 'ref', $result['txn_ref'] );
+		$this->assertSame( 'ref', PaymentAttempt::current( $this->order )['txn_ref'] );
+		$this->assertSame( $history, PaymentAttempt::history( new FakeOrder( 42 ) ) );
+		$this->assertSame( 1, $this->order->save_calls );
 		$this->assertSame( array(), $this->order->notes );
 	}
 
@@ -206,6 +265,41 @@ class HitPaymentServiceTest extends TestCase {
 		$this->assertSame( 'Windcave Terminal: TxnRef ' . $result['txn_ref'] . ' not started, the terminal is still finishing an earlier transaction (PC).', $this->order->notes[0]['note'] );
 		$this->assertSame( 0, $this->order->notes[0]['is_customer_note'] );
 		$this->assertSame( array(), FakeOrder::$completion_calls );
+	}
+
+	public function test_poll_unknown_error_reco_returns_error_without_changing_attempt(): void {
+		$this->record_attempt();
+		$history = PaymentAttempt::history( $this->order );
+		$this->client->shouldReceive( 'status' )->once()->with( 'S1', 'ref' )->andReturn( $this->response( 'reco-po.xml' ) );
+		$result = $this->service->poll( $this->order );
+		$this->assertSame( 'error', $result['status'] );
+		$this->assertTrue( $result['retry_allowed'] );
+		$this->assertSame( 'Windcave reported code PO: INVALID STATION. Check the Station ID and HIT settings, or set the payment aside.', $result['message'] );
+		$this->assertSame( 'pending', PaymentAttempt::current( $this->order )['status'] );
+		$this->assertSame( $history, PaymentAttempt::history( new FakeOrder( 42 ) ) );
+		$this->assertSame( 1, $this->order->save_calls );
+		$this->assertSame( array(), $this->order->notes );
+	}
+
+	public function test_poll_network_reco_stays_pending(): void {
+		$this->record_attempt();
+		$this->client->shouldReceive( 'status' )->once()->with( 'S1', 'ref' )->andReturn(
+			HitResponse::from_xml( '<Scr><Complete>0</Complete><ReCo>PD</ReCo></Scr>' )
+		);
+		$this->assertSame( 'pending', $this->service->poll( $this->order )['status'] );
+		$this->assertSame( 'pending', PaymentAttempt::current( $this->order )['status'] );
+		$this->assertSame( 1, $this->order->save_calls );
+	}
+
+	public function test_poll_pc_status_reply_stays_pending(): void {
+		$this->record_attempt();
+		$this->client->shouldReceive( 'status' )->once()->with( 'S1', 'ref' )->andReturn(
+			HitResponse::from_xml( '<Scr><TxnType>Status</TxnType><Complete>0</Complete><ReCo>PC</ReCo><DL1>BUSY</DL1></Scr>' )
+		);
+		$this->assertSame( 'pending', $this->service->poll( $this->order )['status'] );
+		$this->assertSame( 'pending', PaymentAttempt::current( $this->order )['status'] );
+		$this->assertSame( 1, $this->order->save_calls );
+		$this->assertSame( array(), $this->order->notes );
 	}
 
 	public function test_poll_approved_completes_order_once_and_stores_receipt(): void {
@@ -288,17 +382,46 @@ class HitPaymentServiceTest extends TestCase {
 		$this->assertSame( 'Windcave approved TxnRef ref but it was not applied: currency changed (attempt NZD, order AUD). Check the Windcave portal before taking payment again.', $edited_order->notes[1]['note'] );
 	}
 
-	public function test_poll_environment_mismatch_is_verification_failed(): void {
+	public function test_poll_skips_status_for_production_attempt_in_uat(): void {
 		$this->record_attempt( 'production' );
-		$this->client->shouldReceive( 'status' )->once()->with( 'S1', 'ref' )->andReturn( $this->response( 'status-approved.xml' ) );
+		$this->client->shouldNotReceive( 'status' );
 
 		$result = $this->service->poll( $this->order );
-		$this->assertSame( 'verification_failed', $result['status'] );
-		$this->assertFalse( $result['retry_allowed'] );
+		$this->assertSame( 'error', $result['status'] );
+		$this->assertSame( 'This payment was started in production. Switch the Windcave environment back to production to finish it, or check it in the Windcave portal.', $result['message'] );
 		$this->assertSame( array(), FakeOrder::$completion_calls );
 		$this->assertFalse( ( new FakeOrder( 42 ) )->is_paid() );
-		$this->assertSame( 'approved', PaymentAttempt::find( $this->order, 'ref' )['status'] );
-		$this->assertSame( 'Windcave approved TxnRef ref but it was not applied: environment mismatch (attempt production, settings uat). Check the Windcave portal before taking payment again.', $this->order->notes[1]['note'] );
+		$this->assertSame( 'pending', PaymentAttempt::find( $this->order, 'ref' )['status'] );
+		$this->assertSame( 1, $this->order->save_calls );
+		$this->assertSame( array(), $this->order->notes );
+	}
+
+	public function test_poll_skips_status_when_environment_changed(): void {
+		$this->record_attempt();
+		$this->options['environment'] = 'production';
+		$service = new HitPaymentService( $this->client, new Settings( $this->options ) );
+		$history = PaymentAttempt::history( $this->order );
+		$this->client->shouldNotReceive( 'status' );
+		Logger::$threshold = 'debug';
+		Functions\when( 'wp_json_encode' )->alias( 'json_encode' );
+		$logger = new class() {
+			public $entries = array();
+			public function log( $level, $message, $context ) { $this->entries[] = array( $level, $message, $context ); }
+		};
+		Functions\when( 'wc_get_logger' )->justReturn( $logger );
+
+		$result = $service->poll( $this->order );
+		$this->assertSame( 'error', $result['status'] );
+		$this->assertSame( 'ref', $result['txn_ref'] );
+		$this->assertSame( 'This payment was started in UAT. Switch the Windcave environment back to UAT to finish it, or check it in the Windcave portal.', $result['message'] );
+		$this->assertSame( 'pending', PaymentAttempt::find( $this->order, 'ref' )['status'] );
+		$this->assertSame( $history, PaymentAttempt::history( new FakeOrder( 42 ) ) );
+		$this->assertSame( 1, $this->order->save_calls );
+		$this->assertSame( array(), $this->order->notes );
+		$this->assertSame( array(), FakeOrder::$completion_calls );
+		$this->assertCount( 1, $logger->entries );
+		$this->assertSame( 'error', $logger->entries[0][0] );
+		$this->assertSame( 'Status skipped: environment changed since the attempt started {"order_id":42,"txn_ref":"ref","attempt_environment":"uat","settings_environment":"production","source":"poll"}', $logger->entries[0][1] );
 	}
 
 	public function test_poll_pj_marks_declined(): void {

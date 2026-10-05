@@ -8,11 +8,11 @@
 namespace WCPOS\WooCommercePOS\WindcaveTerminal\Tests;
 
 use Brain\Monkey;
-use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 use Mockery;
 use PHPUnit\Framework\TestCase;
 use WCPOS\WooCommercePOS\WindcaveTerminal\AjaxHandler;
+use WCPOS\WooCommercePOS\WindcaveTerminal\Logger;
 use WCPOS\WooCommercePOS\WindcaveTerminal\PaymentRequestToken;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Services\HitPaymentService;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Settings;
@@ -38,12 +38,14 @@ class AjaxHandlerTest extends TestCase {
 	private $handler;
 	private $order;
 	private $factory_calls;
+	private $previous_post;
 
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
 		FakeOrder::$rows = array();
 		FakeOrder::$completion_calls = array();
+		$this->previous_post = $_POST;
 		$_POST = array( 'order_id' => '42' );
 		Functions\when( '__' )->returnArg();
 		Functions\when( 'add_action' )->justReturn( true );
@@ -54,8 +56,9 @@ class AjaxHandlerTest extends TestCase {
 		Functions\when( 'wp_salt' )->justReturn( 'test-auth-salt' );
 		Functions\when( 'wp_json_encode' )->alias( 'json_encode' );
 		Functions\when( 'current_user_can' )->justReturn( false );
+		Functions\when( 'is_user_logged_in' )->justReturn( false );
 		Functions\when( 'get_option' )->justReturn( array( 'enabled' => 'yes' ) );
-		Filters\expectApplied( 'wctwc_logging' )->andReturn( false );
+		Logger::$threshold = 'off';
 		Functions\when( 'wp_send_json_success' )->alias( function ( $data, $status = 200 ) {
 			throw new AjaxJsonResponse( true, $data, $status );
 		} );
@@ -72,9 +75,11 @@ class AjaxHandlerTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		$_POST = array();
+		$_POST = $this->previous_post;
 		FakeOrder::$rows = array();
 		FakeOrder::$completion_calls = array();
+		Logger::$threshold = null;
+		Logger::$logger = null;
 		Monkey\tearDown();
 		parent::tearDown();
 	}
@@ -96,6 +101,31 @@ class AjaxHandlerTest extends TestCase {
 		$this->assertSame( 403, $response->status );
 		$this->assertSame( 'Unauthorized request.', $response->data );
 		$this->assertSame( 0, $this->factory_calls );
+	}
+
+	public function test_unauthorised_refusal_is_logged_with_reason(): void {
+		$_POST['order_token'] = 'invalid-secret-token-value';
+		Logger::$threshold = 'debug';
+		$logger = new class() {
+			public $entries = array();
+			public function log( $level, $message, $context ) { $this->entries[] = array( $level, $message, $context ); }
+		};
+		Functions\when( 'wc_get_logger' )->justReturn( $logger );
+		$this->service->shouldNotReceive( 'start' );
+
+		$response = $this->request( 'start_payment' );
+		$this->assertSame( 403, $response->status );
+		$this->assertSame( 0, $this->factory_calls );
+		$this->assertCount( 1, $logger->entries );
+		$this->assertSame( 'warning', $logger->entries[0][0] );
+		$line = $logger->entries[0][1];
+		$this->assertStringContainsString( 'unauthorised', $line );
+		$this->assertStringNotContainsString( $_POST['order_token'], $line );
+		$context = json_decode( substr( $line, strlen( 'Windcave Terminal AJAX request refused. ' ) ), true );
+		$this->assertSame( array(
+			'operation' => 'start_payment', 'order_id' => 42,
+			'credential_sent' => true, 'logged_in' => false, 'reason' => 'unauthorised',
+		), $context );
 	}
 
 	public function test_valid_token_allows_poll(): void {
@@ -123,7 +153,7 @@ class AjaxHandlerTest extends TestCase {
 		Functions\expect( 'wc_get_order' )->once()->with( 42 )->andReturn( $this->order );
 		Functions\when( 'current_user_can' )->justReturn( true );
 		Functions\when( 'get_option' )->justReturn( array( 'enabled' => 'no' ) );
-		$this->assertFalse( function_exists( 'wcpos_get_settings' ) );
+		Functions\when( 'wcpos_get_settings' )->justReturn( array( 'gateways' => array() ) );
 		$this->service->shouldNotReceive( 'start' );
 		$response = $this->request( 'start_payment' );
 		$this->assertFalse( $response->success );
