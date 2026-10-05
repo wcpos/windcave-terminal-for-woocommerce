@@ -56,6 +56,14 @@ In **WooCommerce → Settings → Payments → Windcave Terminal**, set:
 
 Enable the gateway separately in **WooCommerce POS → Settings → Checkout** to use it in POS. This works without enabling it for online store checkout.
 
+## Sending diagnostics
+
+The **Log level** setting defaults to **Debug (everything, recommended while testing)**. Logs are available at **WooCommerce → Status → Logs**, source `windcave-terminal`.
+
+If a payment fails, open **WooCommerce → Settings → Payments → Windcave Terminal** and click **Download support bundle**. The JSON file includes the environment, plugin settings with the HIT key masked (and its length recorded) and the HIT username masked after its first three characters, attempts from up to 20 recent orders without stored receipts, and the last 1000 lines from the two newest `windcave-terminal` log files. Log lines may include terminal receipt text with card numbers masked.
+
+Download the bundle and send it with the order number to WCPOS support. The **View logs in WooCommerce → Status → Logs** link opens the logs; if WooCommerce uses the database log handler, export those logs there as well.
+
 ## Refunds
 
 Not supported from WooCommerce in this version. Refund in the Windcave portal (Payline) or on the terminal, then record the refund in WooCommerce manually.
@@ -69,7 +77,7 @@ composer lint
 npm test
 ```
 
-HIT XML fixtures live in `tests/fixtures/hit/`. `status-approved.xml` preserves Windcave's published approved Status response; the other fixtures exercise in-progress, declined, signature, CANCEL, `PC` and `PJ` cases based on the HIT documentation. These tests do not replace testing with a Windcave account and hardware.
+HIT XML fixtures live in `tests/fixtures/hit/`. `status-approved.xml` and `status-in-progress.xml` preserve Windcave's published approved and in-progress Status examples; the other fixtures exercise declined, signature, CANCEL, `PC` and `PJ` cases based on the HIT documentation. These tests do not replace testing with a Windcave account and hardware.
 
 ## Releasing
 

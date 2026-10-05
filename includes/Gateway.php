@@ -138,7 +138,35 @@ class Gateway extends \WC_Payment_Gateway {
 				),
 				'description' => __( 'Logs go to WooCommerce → Status → Logs, source windcave-terminal. Debug logs every Windcave request and response with keys and card data masked.', 'windcave-terminal-for-woocommerce' ),
 			),
+			'support'         => array(
+				'type'    => 'wctwc_support',
+				'title'   => __( 'Support', 'windcave-terminal-for-woocommerce' ),
+				'default' => '',
+			),
 		);
+	}
+
+	/**
+	 * Render the support download and log links.
+	 *
+	 * @param string $key  Field key.
+	 * @param array  $data Field definition.
+	 * @return string Settings table row.
+	 */
+	public function generate_wctwc_support_html( $key, $data ): string {
+		return '<tr valign="top"><th scope="row" class="titledesc">' . esc_html( $data['title'] ) . '</th><td class="forminp">'
+			. '<a class="button" href="' . esc_url( SupportBundle::download_url() ) . '">' . esc_html__( 'Download support bundle', 'windcave-terminal-for-woocommerce' ) . '</a> '
+			. '<a href="' . esc_url( SupportBundle::logs_url() ) . '">' . esc_html__( 'View logs in WooCommerce → Status → Logs', 'windcave-terminal-for-woocommerce' ) . '</a>'
+			. '<p class="description">' . esc_html__( 'If a payment fails, download the support bundle and send it to WCPOS support together with the order number. It includes the plugin settings with the HIT key masked, recent payment attempts without receipts, and the most recent windcave-terminal log lines. Log lines may include terminal receipt text with card numbers masked.', 'windcave-terminal-for-woocommerce' ) . '</p></td></tr>';
+	}
+
+	/**
+	 * Keep the support controls free of a submitted setting value.
+	 *
+	 * @return string Empty value.
+	 */
+	public function validate_wctwc_support_field(): string {
+		return '';
 	}
 
 	/**

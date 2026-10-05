@@ -87,6 +87,7 @@ class GatewayTest extends TestCase {
 				'fprn_enabled',
 				'show_logs',
 				'log_level',
+				'support',
 			),
 			array_keys( $gateway->form_fields )
 		);
@@ -98,6 +99,26 @@ class GatewayTest extends TestCase {
 	public function test_hit_key_is_password_field(): void {
 		$gateway = new Gateway();
 		$this->assertSame( 'password', $gateway->form_fields['hit_key']['type'] );
+	}
+
+	public function test_support_field_renders_download_and_logs_links(): void {
+		Functions\when( 'admin_url' )->alias( function ( $path ) { return 'https://shop.test/wp-admin/' . $path; } );
+		Functions\expect( 'wp_nonce_url' )->once()->with(
+			'https://shop.test/wp-admin/admin-post.php?action=wctwc_support_bundle', 'wctwc_support_bundle'
+		)->andReturn( 'https://shop.test/wp-admin/admin-post.php?action=wctwc_support_bundle&_wpnonce=test-nonce' );
+		Functions\expect( 'esc_url' )->once()->with( 'https://shop.test/wp-admin/admin-post.php?action=wctwc_support_bundle&_wpnonce=test-nonce' )
+			->andReturn( 'https://shop.test/wp-admin/admin-post.php?action=wctwc_support_bundle&amp;_wpnonce=test-nonce' );
+		Functions\expect( 'esc_url' )->once()->with( 'https://shop.test/wp-admin/admin.php?page=wc-status&tab=logs&source=windcave-terminal' )
+			->andReturn( 'https://shop.test/wp-admin/admin.php?page=wc-status&amp;tab=logs&amp;source=windcave-terminal' );
+		$gateway = new Gateway();
+		$this->assertSame( 'wctwc_support', $gateway->form_fields['support']['type'] );
+		$html = $gateway->generate_wctwc_support_html( 'support', $gateway->form_fields['support'] );
+		$this->assertStringContainsString( '<tr valign="top"><th scope="row" class="titledesc">Support</th><td class="forminp">', $html );
+		$this->assertStringContainsString( '<a class="button" href="https://shop.test/wp-admin/admin-post.php?action=wctwc_support_bundle&amp;_wpnonce=test-nonce">Download support bundle</a>', $html );
+		$this->assertStringContainsString( '<a href="https://shop.test/wp-admin/admin.php?page=wc-status&amp;tab=logs&amp;source=windcave-terminal">View logs in WooCommerce → Status → Logs</a>', $html );
+		$this->assertStringContainsString( '<p class="description">If a payment fails, download the support bundle and send it to WCPOS support together with the order number. It includes the plugin settings with the HIT key masked, recent payment attempts without receipts, and the most recent windcave-terminal log lines. Log lines may include terminal receipt text with card numbers masked.</p>', $html );
+		$this->assertStringNotContainsString( '<input', $html );
+		$this->assertSame( '', $gateway->validate_wctwc_support_field( 'support', 'submitted value' ) );
 	}
 
 	/**
