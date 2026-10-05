@@ -1,0 +1,51 @@
+<Scr>
+  <TxnType>Status</TxnType>
+  <TxnRef>123</TxnRef>
+  <StatusId>6</StatusId>
+  <TxnStatusId>8</TxnStatusId>
+  <Complete>1</Complete>
+  <RcptW>30</RcptW>
+  <Rcpt>*-----------EFTPOS-----------*
+27 Mar 18 13:13 CHEQUE
+SWIPE VISA CARD 411111******1111
+AUTHORISATION 000289
+REFERENCE 029013
+PURCHASE NZD1.00
+TOTAL NZD1.00 APPROVED PIN VERIFIED
+*---------------------------*
+CUSTOMER COPY PLEASE RETAIN FOR YOUR RECORDS</Rcpt>
+  <Result>
+    <AC>000289</AC>
+    <AP>1</AP>
+    <CN>411111******1111</CN>
+    <CT>Visa</CT>
+    <CH>VISA TEST CARD/</CH>
+    <DT>20180327131306</DT>
+    <DT_TZ>NZT</DT_TZ>
+    <DS>20180327180000</DS>
+    <DS_TZ>NZT</DS_TZ>
+    <PIX></PIX>
+    <RID></RID>
+    <RRN></RRN>
+    <ST>788359</ST>
+    <TR>0000000100e1a6f9</TR>
+    <DBID>0000010001128730</DBID>
+    <RC>00</RC>
+    <RT></RT>
+    <RTT>4050</RTT>
+    <AmtA>100</AmtA>
+    <AmtS>0</AmtS>
+    <AmtT>0</AmtT>
+    <AmtC>0</AmtC>
+    <MID>10000000</MID>
+    <TID>10000648</TID>
+    <AutoSig>0</AutoSig>
+    <CaStan>47228</CaStan>
+  </Result>
+  <ReCo></ReCo>
+  <Tmo>20</Tmo>
+  <DL1>APPROVED</DL1>
+  <DL2></DL2>
+  <B1 en="0"></B1>
+  <B2 en="0"></B2>
+</Scr>

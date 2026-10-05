@@ -19,6 +19,17 @@
 	<exclude name="Squiz.Commenting.InlineComment.InvalidEndChar"/>
 	<rule ref="Generic.Commenting.Todo"/>
 
+	<!-- Native DOM properties are camelCase. -->
+	<rule ref="WordPress.NamingConventions.ValidVariableName">
+		<properties>
+			<property name="allowed_custom_properties" type="array">
+				<element value="documentElement"/>
+				<element value="nodeName"/>
+				<element value="childNodes"/>
+				<element value="textContent"/>
+			</property>
+		</properties>
+	</rule>
 	<rule ref="WordPress.Security.ValidatedSanitizedInput">
 		<properties>
 			<property name="customUnslashingSanitizingFunctions" type="array">

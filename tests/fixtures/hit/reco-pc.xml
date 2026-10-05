@@ -1,0 +1,8 @@
+<Scr>
+  <TxnType>Purchase</TxnType>
+  <TxnRef>126</TxnRef>
+  <Complete>1</Complete>
+  <ReCo>PC</ReCo>
+  <DL1>EXISTING TXN</DL1>
+  <DL2>IN PROGRESS</DL2>
+</Scr>
