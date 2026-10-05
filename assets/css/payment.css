@@ -1,0 +1,54 @@
+.wctwc-payment-interface {
+	padding: 16px;
+	border: 1px solid #c3c4c7;
+	background: #fff;
+	color: #1d2327;
+}
+
+.wctwc-payment-interface .button {
+	border-radius: 0;
+	font-family: inherit;
+}
+
+.wctwc-payment-interface [hidden] {
+	display: none;
+}
+
+.wctwc-station-select {
+	margin: 0 0 12px 8px;
+}
+
+.wctwc-payment-actions,
+.wctwc-prompt-buttons,
+.wctwc-logging-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.wctwc-prompt {
+	margin-top: 16px;
+	padding: 12px;
+	border: 1px solid #8c8f94;
+}
+
+.wctwc-prompt-line1,
+.wctwc-prompt-line2 {
+	margin: 0 0 8px;
+	font-size: 1.2em;
+	font-weight: 700;
+}
+
+.wctwc-payment-status {
+	margin: 12px 0;
+}
+
+.wctwc-logging-hidden {
+	display: none;
+}
+
+.wctwc-payment-log-textarea {
+	width: 100%;
+	min-height: 160px;
+	margin-top: 8px;
+}
