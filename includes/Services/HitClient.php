@@ -38,10 +38,16 @@ class HitClient {
 	 * @param string $amount       Formatted amount.
 	 * @param string $currency     Currency code.
 	 * @param string $merchant_ref Merchant reference.
+	 * @param string $notify_url   Result notification URL.
 	 * @return HitResponse|\WP_Error
 	 */
-	public function purchase( string $station, string $txn_ref, string $amount, string $currency, string $merchant_ref ) {
-		return $this->send( 'Purchase', $this->payment_fields( 'Purchase', $station, $txn_ref, $amount, $currency, $merchant_ref ) );
+	public function purchase( string $station, string $txn_ref, string $amount, string $currency, string $merchant_ref, string $notify_url = '' ) {
+		$fields = $this->payment_fields( 'Purchase', $station, $txn_ref, $amount, $currency, $merchant_ref );
+		if ( '' !== $notify_url ) {
+			$fields['UrlSuccess'] = $notify_url;
+			$fields['UrlFail']    = $notify_url;
+		}
+		return $this->send( 'Purchase', $fields );
 	}
 
 	/**
