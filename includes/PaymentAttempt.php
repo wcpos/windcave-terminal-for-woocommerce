@@ -97,6 +97,18 @@ class PaymentAttempt {
 		$history[] = $attempt;
 		$order->update_meta_data( self::META_ATTEMPTS, $history );
 		$order->save();
+		Logger::log(
+			'Attempt recorded',
+			array(
+				'order_id' => (int) $order->get_id(),
+				'txn_ref' => $txn_ref,
+				'station' => $station,
+				'amount' => $amount,
+				'currency' => $currency,
+				'environment' => $environment,
+			),
+			'info'
+		);
 		return $attempt;
 	}
 
@@ -125,6 +137,7 @@ class PaymentAttempt {
 	 * @param string    $dps_txn_ref Windcave transaction ID, when available.
 	 */
 	public static function update( $order, string $txn_ref, string $status, string $dps_txn_ref = '' ): void {
+		$from = self::find( $order, $txn_ref )['status'] ?? '';
 		// Only the current attempt owns the current-status pointer. A reconcile of
 		// an abandoned transaction must not stamp its status onto whatever attempt
 		// the cashier is running now.
@@ -146,6 +159,19 @@ class PaymentAttempt {
 			self::forget_abandoned( $order, $txn_ref );
 		}
 		$order->save();
+		if ( $from !== $status ) {
+			Logger::log(
+				'Attempt status',
+				array(
+					'order_id' => (int) $order->get_id(),
+					'txn_ref' => $txn_ref,
+					'from' => $from,
+					'to' => $status,
+					'dps_txn_ref' => $dps_txn_ref,
+				),
+				'info'
+			);
+		}
 	}
 
 	/**
@@ -172,6 +198,15 @@ class PaymentAttempt {
 		$order->update_meta_data( self::META_RECEIPT_WIDTH, $width );
 		$order->add_order_note( "Windcave receipt (TxnRef {$txn_ref}):\n" . $receipt );
 		$order->save();
+		Logger::log(
+			'Receipt stored',
+			array(
+				'order_id' => (int) $order->get_id(),
+				'txn_ref' => $txn_ref,
+				'length' => strlen( $receipt ),
+			),
+			'debug'
+		);
 	}
 
 	/**
@@ -206,6 +241,16 @@ class PaymentAttempt {
 		$order->delete_meta_data( self::META_CURRENT_STATUS );
 		$order->delete_meta_data( self::META_CURRENT_CREATED_AT );
 		$order->save();
+		if ( '' !== $txn_ref ) {
+			Logger::log(
+				'Attempt set aside',
+				array(
+					'order_id' => (int) $order->get_id(),
+					'txn_ref' => $txn_ref,
+				),
+				'info'
+			);
+		}
 	}
 
 	/**

@@ -86,6 +86,7 @@ class GatewayTest extends TestCase {
 				'pos_name',
 				'fprn_enabled',
 				'show_logs',
+				'log_level',
 			),
 			array_keys( $gateway->form_fields )
 		);

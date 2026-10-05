@@ -8,10 +8,10 @@
 namespace WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Services;
 
 use Brain\Monkey;
-use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 use Mockery;
 use PHPUnit\Framework\TestCase;
+use WCPOS\WooCommercePOS\WindcaveTerminal\Logger;
 use WCPOS\WooCommercePOS\WindcaveTerminal\PaymentAttempt;
 use WCPOS\WooCommercePOS\WindcaveTerminal\PaymentLock;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Services\HitClient;
@@ -53,7 +53,8 @@ class HitPaymentServiceTest extends TestCase {
 		Functions\when( 'wc_get_order' )->alias( function ( $id ) {
 			return new FakeOrder( $id );
 		} );
-		Filters\expectApplied( 'wctwc_logging' )->andReturn( false );
+		Logger::$threshold = 'off';
+		Functions\when( 'get_bloginfo' )->justReturn( '6.8' );
 		$this->client  = Mockery::mock( HitClient::class );
 		$this->service = new HitPaymentService( $this->client, new Settings( $this->options ) );
 		$this->order   = new FakeOrder( 42, '1.00', 'NZD' );
@@ -65,6 +66,8 @@ class HitPaymentServiceTest extends TestCase {
 		$GLOBALS['wpdb'] = $this->previous_wpdb;
 		FakeOrder::$rows = array();
 		FakeOrder::$completion_calls = array();
+		Logger::$threshold = null;
+		Logger::$logger = null;
 		Monkey\tearDown();
 		parent::tearDown();
 	}
@@ -477,6 +480,51 @@ class HitPaymentServiceTest extends TestCase {
 		$this->assertSame( 'Unknown TxnRef for this order.', $result['message'] );
 		$this->assertSame( 1, $this->order->save_calls );
 		$this->assertSame( array(), FakeOrder::$completion_calls );
+	}
+
+	public function test_apply_logs_result_with_order_and_prompt(): void {
+		$this->record_attempt();
+		Logger::$threshold = 'debug';
+		$logger = new class() {
+			public $entries = array();
+			public function log( $level, $message, $context ) { $this->entries[] = array( $level, $message, $context ); }
+		};
+		Functions\when( 'wc_get_logger' )->justReturn( $logger );
+		$this->client->shouldReceive( 'status' )->once()->with( 'S1', 'ref' )->andReturn( $this->response( 'status-signature.xml' ) );
+		$result = $this->service->poll( $this->order );
+		$entries = array_values( array_filter( $logger->entries, function ( $entry ) { return 0 === strpos( $entry[1], 'HIT result applied ' ); } ) );
+		$this->assertCount( 1, $entries );
+		$this->assertSame( 'info', $entries[0][0] );
+		$context = json_decode( substr( $entries[0][1], strlen( 'HIT result applied ' ) ), true );
+		$this->assertSame( array(
+			'order_id' => 42, 'source' => 'poll', 'txn_ref' => 'ref', 'status' => $result['status'],
+			'reco' => '', 'complete' => false, 'txn_status_id' => 7, 'dl1' => 'SIGNATURE OK?', 'dl2' => 'CHECK SIGNATURE',
+			'buttons' => array( array( 'name' => 'B1', 'label' => 'YES' ), array( 'name' => 'B2', 'label' => 'NO' ) ),
+		), $context );
+	}
+
+	public function test_answer_logs_ui_answer(): void {
+		$this->record_attempt();
+		Logger::$threshold = 'debug';
+		$logger = new class() {
+			public $entries = array();
+			public function log( $level, $message, $context ) { $this->entries[] = array( $level, $message, $context ); }
+		};
+		Functions\when( 'wc_get_logger' )->justReturn( $logger );
+		$this->client->shouldReceive( 'ui' )->once()->with( 'S1', 'ref', 'B1', 'YES' )->andReturnUsing( function () use ( $logger ) {
+			$this->assertCount( 1, $logger->entries );
+			$this->assertSame( 'info', $logger->entries[0][0] );
+			$this->assertSame( 'UI answer sent {"order_id":42,"txn_ref":"ref","button":"B1","value":"YES"}', $logger->entries[0][1] );
+			return $this->response( 'status-in-progress.xml' );
+		} );
+		$this->client->shouldReceive( 'status' )->once()->with( 'S1', 'ref' )->andReturn( $this->response( 'status-approved.xml' ) );
+		$this->assertSame( 'paid', $this->service->answer( $this->order, 'B1', 'YES' )['status'] );
+		foreach ( $logger->entries as $entry ) {
+			$this->assertStringNotContainsString( '411111', $entry[1] );
+			$this->assertStringNotContainsString( 'VISA TEST CARD/', $entry[1] );
+			$this->assertStringContainsString( '"order_id":42', $entry[1] );
+			$this->assertStringContainsString( '"txn_ref":"ref"', $entry[1] );
+		}
 	}
 
 	private function record_attempt( string $environment = 'uat' ): void {

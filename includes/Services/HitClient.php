@@ -8,6 +8,7 @@
 namespace WCPOS\WooCommercePOS\WindcaveTerminal\Services;
 
 use DOMDocument;
+use WCPOS\WooCommercePOS\WindcaveTerminal\Logger;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Settings;
 
 /**
@@ -169,9 +170,19 @@ class HitClient {
 	 * @return HitResponse|\WP_Error
 	 */
 	private function send( string $txn_type, array $fields ) {
-		$xml      = $this->build_request( $txn_type, $fields );
+		$started = microtime( true );
+		$xml     = $this->build_request( $txn_type, $fields );
+		$url     = $this->settings->endpoint_url();
+		Logger::xml(
+			'HIT request',
+			$xml,
+			array(
+				'txn_type' => $txn_type,
+				'endpoint' => $url,
+			)
+		);
 		$response = wp_remote_post(
-			$this->settings->endpoint_url(),
+			$url,
 			array(
 				'timeout' => 30,
 				'headers' => array( 'Content-Type' => 'text/xml; charset=utf-8' ),
@@ -179,12 +190,42 @@ class HitClient {
 			)
 		);
 		if ( is_wp_error( $response ) ) {
+			Logger::log(
+				'HIT transport error',
+				array(
+					'txn_type' => $txn_type,
+					'endpoint' => $url,
+					'error_code' => $response->get_error_code(),
+					'error_message' => $response->get_error_message(),
+					'elapsed_ms' => Logger::elapsed_ms( $started ),
+				),
+				'error'
+			);
 			return $response;
 		}
 		$status_code = wp_remote_retrieve_response_code( $response );
+		$body        = wp_remote_retrieve_body( $response );
+		$context     = array(
+			'txn_type' => $txn_type,
+			'http_code' => $status_code,
+			'elapsed_ms' => Logger::elapsed_ms( $started ),
+		);
 		if ( 200 !== $status_code ) {
+			Logger::xml( 'HIT HTTP ' . $status_code . ' response', $body, $context, 'error' );
 			return new \WP_Error( 'wctwc_hit_http', 'HIT request failed.', $status_code );
 		}
-		return HitResponse::from_xml( wp_remote_retrieve_body( $response ) );
+		Logger::xml( 'HIT response', $body, $context );
+		$result = HitResponse::from_xml( $body );
+		if ( is_wp_error( $result ) ) {
+			Logger::log(
+				'HIT response could not be parsed',
+				array(
+					'txn_type' => $txn_type,
+					'error_code' => $result->get_error_code(),
+				),
+				'error'
+			);
+		}
+		return $result;
 	}
 }

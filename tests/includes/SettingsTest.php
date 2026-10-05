@@ -117,4 +117,14 @@ class SettingsTest extends TestCase {
 		$this->assertSame( 'Windcave Terminal', ( new Settings( array( 'title' => ' ' ) ) )->title() );
 		$this->assertSame( 'Counter', ( new Settings( array( 'title' => ' Counter ' ) ) )->title() );
 	}
+
+	public function test_log_level_defaults_to_debug_and_rejects_unknown(): void {
+		$this->assertSame( 'debug', ( new Settings() )->log_level() );
+		foreach ( array( '', 'unknown', 'DEBUG', false ) as $level ) {
+			$this->assertSame( 'debug', ( new Settings( array( 'log_level' => $level ) ) )->log_level() );
+		}
+		foreach ( array( 'off', 'errors', 'debug' ) as $level ) {
+			$this->assertSame( $level, ( new Settings( array( 'log_level' => $level ) ) )->log_level() );
+		}
+	}
 }

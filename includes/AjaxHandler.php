@@ -148,6 +148,7 @@ class AjaxHandler {
 	 * @param callable $callback Payment operation.
 	 */
 	private function with_order( string $operation, callable $callback ): void {
+		$started = microtime( true );
 		try {
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Access is checked using capabilities or a signed order token below.
 			$order_id = absint( $_POST['order_id'] ?? 0 );
@@ -160,8 +161,9 @@ class AjaxHandler {
 			Logger::log(
 				'Windcave Terminal AJAX request received.',
 				array(
-					'operation' => $operation,
-					'order_id'  => $order_id,
+					'operation'  => $operation,
+					'order_id'   => $order_id,
+					'elapsed_ms' => Logger::elapsed_ms( $started ),
 				),
 				'info'
 			);
@@ -187,9 +189,13 @@ class AjaxHandler {
 			Logger::log(
 				'Windcave Terminal AJAX request completed.',
 				array(
-					'operation' => $operation,
-					'order_id'  => $order_id,
-					'status'    => is_array( $result ) ? ( $result['status'] ?? '' ) : '',
+					'operation'     => $operation,
+					'order_id'      => $order_id,
+					'status'        => is_array( $result ) ? ( $result['status'] ?? '' ) : '',
+					'elapsed_ms'    => Logger::elapsed_ms( $started ),
+					'result_status' => is_array( $result ) ? ( $result['status'] ?? '' ) : '',
+					'txn_ref'       => is_array( $result ) ? ( $result['txn_ref'] ?? '' ) : '',
+					'message'       => is_array( $result ) ? ( $result['message'] ?? '' ) : '',
 				),
 				'success'
 			);

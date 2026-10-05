@@ -7,7 +7,10 @@
 
 namespace WCPOS\WooCommercePOS\WindcaveTerminal\Tests;
 
+use Brain\Monkey;
+use Brain\Monkey\Functions;
 use PHPUnit\Framework\TestCase;
+use WCPOS\WooCommercePOS\WindcaveTerminal\Logger;
 use WCPOS\WooCommercePOS\WindcaveTerminal\PaymentAttempt;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Settings;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Support\FakeOrder;
@@ -16,6 +19,8 @@ use WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Support\FakeOrder;
 class PaymentAttemptTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
+		Monkey\setUp();
+		Logger::$threshold = 'off';
 		FakeOrder::$rows = array();
 		FakeOrder::$completion_calls = array();
 	}
@@ -148,5 +153,45 @@ class PaymentAttemptTest extends TestCase {
 		$order->set_payment_method_title( '' );
 		PaymentAttempt::claim_order_gateway( $order, 'Filled title' );
 		$this->assertSame( 'Filled title', $order->get_payment_method_title() );
+	}
+
+	protected function tearDown(): void {
+		Logger::$threshold = null;
+		Logger::$logger = null;
+		Monkey\tearDown();
+		parent::tearDown();
+	}
+
+	public function test_update_logs_transition_from_to(): void {
+		$order = new FakeOrder( 42 );
+		PaymentAttempt::record_new( $order, 'ref', 'S1', '1.00', 'NZD', 'uat' );
+		Logger::$threshold = 'debug';
+		$logger = new class() {
+			public $entries = array();
+			public function log( $level, $message, $context ) { $this->entries[] = array( $level, $message, $context ); }
+		};
+		Functions\when( 'wc_get_logger' )->justReturn( $logger );
+		PaymentAttempt::update( $order, 'ref', 'approved', 'dps-ref' );
+		PaymentAttempt::update( $order, 'ref', 'approved', 'dps-ref' );
+		$this->assertCount( 1, $logger->entries );
+		$this->assertSame( 'info', $logger->entries[0][0] );
+		$this->assertSame( 'Attempt status {"order_id":42,"txn_ref":"ref","from":"pending","to":"approved","dps_txn_ref":"dps-ref"}', $logger->entries[0][1] );
+		PaymentAttempt::update( $order, 'unknown', 'declined' );
+		$this->assertStringContainsString( '"from":"","to":"declined"', $logger->entries[1][1] );
+	}
+
+	public function test_store_receipt_logs_length_not_text(): void {
+		Logger::$threshold = 'debug';
+		$logger = new class() {
+			public $entries = array();
+			public function log( $level, $message, $context ) { $this->entries[] = array( $level, $message, $context ); }
+		};
+		Functions\when( 'wc_get_logger' )->justReturn( $logger );
+		$receipt = 'PRIVATE RECEIPT 4111111111111111';
+		PaymentAttempt::store_receipt( new FakeOrder( 42 ), 'ref', $receipt, 30 );
+		$this->assertCount( 1, $logger->entries );
+		$this->assertSame( 'debug', $logger->entries[0][0] );
+		$this->assertSame( 'Receipt stored {"order_id":42,"txn_ref":"ref","length":' . strlen( $receipt ) . '}', $logger->entries[0][1] );
+		$this->assertStringNotContainsString( $receipt, $logger->entries[0][1] );
 	}
 }

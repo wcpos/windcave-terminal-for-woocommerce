@@ -171,4 +171,12 @@ class Settings {
 	public function show_logs(): bool {
 		return 'yes' === $this->get( 'show_logs' );
 	}
+
+	/**
+	 * Get the diagnostic log threshold.
+	 */
+	public function log_level(): string {
+		$level = $this->get( 'log_level', 'debug' );
+		return in_array( $level, array( 'off', 'errors', 'debug' ), true ) ? $level : 'debug';
+	}
 }

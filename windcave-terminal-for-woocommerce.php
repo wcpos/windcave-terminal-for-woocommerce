@@ -51,6 +51,7 @@ spl_autoload_register(
  */
 function wctwc_activate(): void {
 	if ( PHP_VERSION_ID >= WCTWC_MINIMUM_PHP_VERSION_ID ) {
+		Logger::log( 'Plugin activated', Logger::environment(), 'info' );
 		return;
 	}
 	deactivate_plugins( plugin_basename( __FILE__ ) );
