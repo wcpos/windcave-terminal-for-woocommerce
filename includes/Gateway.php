@@ -127,6 +127,17 @@ class Gateway extends \WC_Payment_Gateway {
 				'type'    => 'checkbox',
 				'default' => 'no',
 			),
+			'log_level'       => array(
+				'title'       => __( 'Log level', 'windcave-terminal-for-woocommerce' ),
+				'type'        => 'select',
+				'default'     => 'debug',
+				'options'     => array(
+					'off'    => __( 'Off', 'windcave-terminal-for-woocommerce' ),
+					'errors' => __( 'Errors only', 'windcave-terminal-for-woocommerce' ),
+					'debug'  => __( 'Debug (everything, recommended while testing)', 'windcave-terminal-for-woocommerce' ),
+				),
+				'description' => __( 'Logs go to WooCommerce → Status → Logs, source windcave-terminal. Debug logs every Windcave request and response with keys and card data masked.', 'windcave-terminal-for-woocommerce' ),
+			),
 		);
 	}
 

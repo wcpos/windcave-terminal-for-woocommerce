@@ -63,11 +63,32 @@ class HitPaymentService {
 			$station = $this->settings->default_station();
 		}
 		if ( '' === $station || ! in_array( $station, $this->settings->station_ids(), true ) ) {
+			Logger::log(
+				'Payment start rejected: invalid station',
+				array(
+					'order_id' => (int) $order->get_id(),
+					'station' => $station,
+				),
+				'warning'
+			);
 			return $this->result( 'error', '', null, __( 'Choose a Windcave terminal (Station ID).', 'windcave-terminal-for-woocommerce' ) );
 		}
 		if ( '' === $this->settings->hit_user() || '' === $this->settings->hit_key() ) {
+			Logger::log( 'Payment start rejected: credentials not configured', array( 'order_id' => (int) $order->get_id() ), 'warning' );
 			return $this->result( 'error', '', null, __( 'Windcave HIT credentials are not configured.', 'windcave-terminal-for-woocommerce' ) );
 		}
+		Logger::log(
+			'Payment start',
+			array(
+				'order_id' => (int) $order->get_id(),
+				'station' => $station,
+				'amount' => number_format( (float) $order->get_total(), 2, '.', '' ),
+				'currency' => strtoupper( $order->get_currency() ),
+				'environment' => $this->settings->environment(),
+				'env' => Logger::environment(),
+			),
+			'info'
+		);
 		return PaymentLock::with_lock(
 			(int) $order->get_id(),
 			'create_payment',
@@ -93,10 +114,27 @@ class HitPaymentService {
 				$notify_url = $this->settings->fprn_enabled() ? FprnHandler::url( $order ) : '';
 				$r          = $this->client->purchase( $station, $txn_ref, $amount, $currency, 'Order #' . $order->get_order_number(), $notify_url );
 				if ( $r instanceof \WP_Error ) {
-					Logger::log( 'HIT Purchase transport error.', array(), 'warning' );
+					Logger::log(
+						'HIT Purchase transport error.',
+						array(
+							'order_id' => (int) $order->get_id(),
+							'txn_ref' => $txn_ref,
+						),
+						'warning'
+					);
 					return $this->result( 'pending', $txn_ref, null, __( 'Could not reach Windcave. Checking the terminal status…', 'windcave-terminal-for-woocommerce' ) );
 				}
-				Logger::log( 'HIT Purchase response.', $r->to_array(), 'info' );
+				Logger::log(
+					'HIT Purchase response.',
+					array_merge(
+						$r->to_array(),
+						array(
+							'order_id' => (int) $order->get_id(),
+							'txn_ref' => $txn_ref,
+						)
+					),
+					'info'
+				);
 				if ( $r->is_existing_txn_in_progress() ) {
 					PaymentAttempt::update( $order, $txn_ref, 'declined' );
 					$order->add_order_note( "Windcave Terminal: TxnRef {$txn_ref} not started, the terminal is still finishing an earlier transaction (PC)." );
@@ -144,12 +182,39 @@ class HitPaymentService {
 		if ( null === $current || ! PaymentAttempt::is_pending( $current['status'] ) ) {
 			return $this->result( 'idle', $current['txn_ref'] ?? '' );
 		}
+		Logger::log(
+			'UI answer sent',
+			array(
+				'order_id' => (int) $order->get_id(),
+				'txn_ref' => $current['txn_ref'],
+				'button' => $button,
+				'value' => $value,
+			),
+			'info'
+		);
 		$r = $this->client->ui( $current['station'], $current['txn_ref'], $button, $value );
 		if ( $r instanceof \WP_Error ) {
-			Logger::log( 'HIT UI answer transport error.', array(), 'warning' );
+			Logger::log(
+				'HIT UI answer transport error.',
+				array(
+					'order_id' => (int) $order->get_id(),
+					'txn_ref' => $current['txn_ref'],
+				),
+				'warning'
+			);
 			return $this->result( 'pending', $current['txn_ref'], null, __( 'Could not send the answer to the terminal. Try again.', 'windcave-terminal-for-woocommerce' ) );
 		}
-		Logger::log( 'HIT UI answer response.', $r->to_array(), 'info' );
+		Logger::log(
+			'HIT UI answer response.',
+			array_merge(
+				$r->to_array(),
+				array(
+					'order_id' => (int) $order->get_id(),
+					'txn_ref' => $current['txn_ref'],
+				)
+			),
+			'info'
+		);
 		return $this->check( $order, $current['txn_ref'], $current['station'], 'answer' );
 	}
 
@@ -167,27 +232,78 @@ class HitPaymentService {
 		$txn_ref = $current['txn_ref'];
 		$r       = $this->client->status( $current['station'], $txn_ref );
 		if ( $r instanceof \WP_Error ) {
-			Logger::log( 'HIT Status transport error (cancel).', array(), 'warning' );
+			Logger::log(
+				'HIT Status transport error (cancel).',
+				array(
+					'order_id' => (int) $order->get_id(),
+					'txn_ref' => $txn_ref,
+				),
+				'warning'
+			);
 			PaymentAttempt::abandon_current( $order );
 			$order->add_order_note( 'Windcave Terminal: terminal did not respond to cancel; attempt set aside for automatic follow-up.' );
 			return $this->result( 'abandoned', $txn_ref, null, __( 'The terminal did not respond, so the payment was set aside. Start a new payment or choose another method.', 'windcave-terminal-for-woocommerce' ) );
 		}
-		Logger::log( 'HIT Status response (cancel).', $r->to_array(), 'info' );
+		Logger::log(
+			'HIT Status response (cancel).',
+			array_merge(
+				$r->to_array(),
+				array(
+					'order_id' => (int) $order->get_id(),
+					'txn_ref' => $txn_ref,
+				)
+			),
+			'info'
+		);
 		if ( $r->complete() ) {
 			return $this->apply( $order, $txn_ref, $r, 'cancel' );
 		}
 		foreach ( array( 'B1', 'B2' ) as $name ) {
 			$button = $r->button( $name );
 			if ( $button['enabled'] && 'CANCEL' === strtoupper( trim( $button['label'] ) ) ) {
+				Logger::log(
+					'UI CANCEL sent',
+					array(
+						'order_id' => (int) $order->get_id(),
+						'txn_ref' => $txn_ref,
+						'button' => $name,
+					),
+					'info'
+				);
 				$reply = $this->client->ui( $current['station'], $txn_ref, $name, 'CANCEL' );
 				if ( $reply instanceof \WP_Error ) {
-					Logger::log( 'HIT UI cancel transport error.', array(), 'warning' );
+					Logger::log(
+						'HIT UI cancel transport error.',
+						array(
+							'order_id' => (int) $order->get_id(),
+							'txn_ref' => $txn_ref,
+						),
+						'warning'
+					);
 				} else {
-					Logger::log( 'HIT UI cancel response.', $reply->to_array(), 'info' );
+					Logger::log(
+						'HIT UI cancel response.',
+						array_merge(
+							$reply->to_array(),
+							array(
+								'order_id' => (int) $order->get_id(),
+								'txn_ref' => $txn_ref,
+							)
+						),
+						'info'
+					);
 				}
 				return $this->check( $order, $txn_ref, $current['station'], 'cancel' );
 			}
 		}
+		Logger::log(
+			'Cancel unavailable',
+			array(
+				'order_id' => (int) $order->get_id(),
+				'txn_ref' => $txn_ref,
+			),
+			'info'
+		);
 		$result            = $this->apply( $order, $txn_ref, $r, 'cancel' );
 		$result['message'] = __( 'The terminal is not offering cancel right now. Cancel on the terminal, or set the payment aside.', 'windcave-terminal-for-woocommerce' );
 		return $result;
@@ -238,10 +354,27 @@ class HitPaymentService {
 	private function check( $order, string $txn_ref, string $station, string $source ): array {
 		$r = $this->client->status( $station, $txn_ref );
 		if ( $r instanceof \WP_Error ) {
-			Logger::log( 'HIT Status transport error (' . $source . ').', array(), 'warning' );
+			Logger::log(
+				'HIT Status transport error (' . $source . ').',
+				array(
+					'order_id' => (int) $order->get_id(),
+					'txn_ref' => $txn_ref,
+				),
+				'warning'
+			);
 			return $this->result( 'pending', $txn_ref, null, __( 'Waiting for Windcave…', 'windcave-terminal-for-woocommerce' ) );
 		}
-		Logger::log( 'HIT Status response (' . $source . ').', $r->to_array(), 'info' );
+		Logger::log(
+			'HIT Status response (' . $source . ').',
+			array_merge(
+				$r->to_array(),
+				array(
+					'order_id' => (int) $order->get_id(),
+					'txn_ref' => $txn_ref,
+				)
+			),
+			'info'
+		);
 		return $this->apply( $order, $txn_ref, $r, $source );
 	}
 
@@ -255,18 +388,22 @@ class HitPaymentService {
 	 * @return array Payment result.
 	 */
 	private function apply( $order, string $txn_ref, HitResponse $r, string $source ): array {
+		$context = array(
+			'order_id' => (int) $order->get_id(),
+			'source' => $source,
+		);
 		if ( 'PJ' === $r->reco() ) {
 			$attempt    = PaymentAttempt::find( $order, $txn_ref );
 			$created_at = $attempt ? strtotime( $attempt['created_at'] ?? '' ) : false;
 			if ( false !== $created_at && time() - $created_at < self::PJ_GRACE_SECONDS ) {
-				return $this->result( 'pending', $txn_ref, $r, __( 'Waiting for Windcave to register the transaction…', 'windcave-terminal-for-woocommerce' ) );
+				return $this->result( 'pending', $txn_ref, $r, __( 'Waiting for Windcave to register the transaction…', 'windcave-terminal-for-woocommerce' ), $context );
 			}
 			PaymentAttempt::update( $order, $txn_ref, 'declined' );
 			$order->add_order_note( "Windcave Terminal: Windcave has no record of TxnRef {$txn_ref} (PJ); marked declined." );
-			return $this->result( 'declined', $txn_ref, $r, __( 'Windcave has no record of this transaction. Start the payment again.', 'windcave-terminal-for-woocommerce' ) );
+			return $this->result( 'declined', $txn_ref, $r, __( 'Windcave has no record of this transaction. Start the payment again.', 'windcave-terminal-for-woocommerce' ), $context );
 		}
 		if ( ! $r->complete() ) {
-			return $this->result( 'pending', $txn_ref, $r );
+			return $this->result( 'pending', $txn_ref, $r, '', $context );
 		}
 		$attempt = PaymentAttempt::find( $order, $txn_ref );
 		if ( empty( $attempt['receipt'] ) ) {
@@ -294,28 +431,46 @@ class HitPaymentService {
 			}
 			PaymentAttempt::update( $order, $txn_ref, 'approved', $r->dps_txn_ref() );
 			if ( ! empty( $reasons ) ) {
+				Logger::log(
+					'Payment verification failed',
+					array(
+						'order_id' => (int) $order->get_id(),
+						'txn_ref' => $txn_ref,
+						'reasons' => $reasons,
+					),
+					'error'
+				);
 				$order->add_order_note( "Windcave approved TxnRef {$txn_ref} but it was not applied: " . implode( '; ', $reasons ) . '. Check the Windcave portal before taking payment again.' );
-				return $this->result( 'verification_failed', $txn_ref, $r );
+				return $this->result( 'verification_failed', $txn_ref, $r, '', $context );
 			}
 			$transaction_id = $r->dps_txn_ref() ? $r->dps_txn_ref() : $txn_ref;
 			$completion     = OrderCompletion::complete( $order, $transaction_id );
 			if ( OrderCompletion::COMPLETED === $completion ) {
 				$order->add_order_note( sprintf( 'Windcave Terminal payment approved. TxnRef %s, auth %s, %s %s.', $txn_ref, $r->auth_code(), $r->card_type(), $r->card_number() ) );
-				return $this->result( 'paid', $txn_ref, $r );
+				return $this->result( 'paid', $txn_ref, $r, '', $context );
 			}
 			if ( OrderCompletion::BUSY === $completion ) {
-				return $this->result( 'paid', $txn_ref, $r, __( 'Completing the order…', 'windcave-terminal-for-woocommerce' ) );
+				return $this->result( 'paid', $txn_ref, $r, __( 'Completing the order…', 'windcave-terminal-for-woocommerce' ), $context );
 			}
 			$fresh = OrderCompletion::reload_order( $order );
 			if ( $fresh->get_transaction_id() === $transaction_id ) {
-				return $this->result( 'paid', $txn_ref, $r );
+				return $this->result( 'paid', $txn_ref, $r, '', $context );
 			}
 			$order->add_order_note( "Windcave approved TxnRef {$txn_ref} but the order was already paid by another transaction. Refund it in the Windcave portal." );
-			return $this->result( 'conflict', $txn_ref, $r );
+			Logger::log(
+				'Payment conflict',
+				array(
+					'order_id' => (int) $order->get_id(),
+					'txn_ref' => $txn_ref,
+					'reasons' => array( 'Order already paid by another transaction' ),
+				),
+				'error'
+			);
+			return $this->result( 'conflict', $txn_ref, $r, '', $context );
 		}
 		PaymentAttempt::update( $order, $txn_ref, 'declined' );
 		$order->add_order_note( sprintf( 'Windcave Terminal payment declined. TxnRef %s, response %s, %s.', $txn_ref, $r->response_code(), $r->display_line_1() ) );
-		return $this->result( 'declined', $txn_ref, $r, $r->display_line_1() ? $r->display_line_1() : __( 'The payment was declined.', 'windcave-terminal-for-woocommerce' ) );
+		return $this->result( 'declined', $txn_ref, $r, $r->display_line_1() ? $r->display_line_1() : __( 'The payment was declined.', 'windcave-terminal-for-woocommerce' ), $context );
 	}
 
 	/**
@@ -325,9 +480,10 @@ class HitPaymentService {
 	 * @param string           $txn_ref Transaction reference, if any.
 	 * @param HitResponse|null $r       HIT response, if any.
 	 * @param string           $message Cashier message.
+	 * @param array            $context Application log context, when applying a response.
 	 * @return array Payment result.
 	 */
-	private function result( string $status, string $txn_ref = '', ?HitResponse $r = null, string $message = '' ): array {
+	private function result( string $status, string $txn_ref = '', ?HitResponse $r = null, string $message = '', array $context = array() ): array {
 		$prompt = array(
 			'line1'   => null !== $r ? $r->display_line_1() : '',
 			'line2'   => null !== $r ? $r->display_line_2() : '',
@@ -343,6 +499,25 @@ class HitPaymentService {
 					);
 				}
 			}
+		}
+		if ( ! empty( $context ) ) {
+			Logger::log(
+				'HIT result applied',
+				array_merge(
+					$context,
+					array(
+						'txn_ref' => $txn_ref,
+						'status' => $status,
+						'reco' => $r->reco(),
+						'complete' => $r->complete(),
+						'txn_status_id' => $r->txn_status_id(),
+						'dl1' => $prompt['line1'],
+						'dl2' => $prompt['line2'],
+						'buttons' => $prompt['buttons'],
+					)
+				),
+				'info'
+			);
 		}
 		return array(
 			'status'        => $status,

@@ -50,6 +50,7 @@ namespace WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Services {
 	use Brain\Monkey;
 	use Brain\Monkey\Functions;
 	use DOMDocument;
+	use WCPOS\WooCommercePOS\WindcaveTerminal\Logger;
 	use PHPUnit\Framework\TestCase;
 	use WCPOS\WooCommercePOS\WindcaveTerminal\Services\HitClient;
 	use WCPOS\WooCommercePOS\WindcaveTerminal\Services\HitResponse;
@@ -74,6 +75,7 @@ namespace WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Services {
 		protected function setUp(): void {
 			parent::setUp();
 			Monkey\setUp();
+			Logger::$threshold = 'off';
 			$this->settings      = new Settings(
 				array(
 					'environment' => 'uat',
@@ -93,6 +95,8 @@ namespace WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Services {
 		 * Clear function expectations.
 		 */
 		protected function tearDown(): void {
+			Logger::$threshold = null;
+			Logger::$logger = null;
 			Monkey\tearDown();
 			parent::tearDown();
 		}
@@ -309,5 +313,50 @@ namespace WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Services {
 			$this->assertInstanceOf( HitResponse::class, $response );
 			$this->assertSame( 5, $response->txn_status_id() );
 		}
+		public function test_send_logs_redacted_request_and_response_with_timing(): void {
+			Logger::$threshold = 'debug';
+			$logger = new class() {
+				public $entries = array();
+				public function log( $level, $message, $context ) { $this->entries[] = array( $level, $message, $context ); }
+			};
+			Functions\when( 'wc_get_logger' )->justReturn( $logger );
+			$this->response_body = file_get_contents( dirname( __DIR__, 2 ) . '/fixtures/hit/status-approved.xml' );
+			Functions\expect( 'wp_remote_post' )->once()->andReturn( array() );
+			( new HitClient( $this->settings ) )->status( 'station1', 'ref1' );
+			$this->assertCount( 2, $logger->entries );
+			$this->assertSame( 'debug', $logger->entries[0][0] );
+			$this->assertStringContainsString( 'HIT request:', $logger->entries[0][1] );
+			$this->assertStringContainsString( 'key="***"', $logger->entries[0][1] );
+			$this->assertStringContainsString( 'user="user1"', $logger->entries[0][1] );
+			$this->assertStringContainsString( 'HIT response:', $logger->entries[1][1] );
+			$this->assertStringContainsString( '"http_code":200', $logger->entries[1][1] );
+			$this->assertMatchesRegularExpression( '/"elapsed_ms":[0-9]+/', $logger->entries[1][1] );
+			foreach ( $logger->entries as $entry ) {
+				foreach ( array( 'key&1', 'key&amp;1', '411111', 'VISA TEST CARD/' ) as $secret ) {
+					$this->assertStringNotContainsString( $secret, $entry[1] );
+				}
+				$this->assertSame( array( 'source' => 'windcave-terminal' ), $entry[2] );
+			}
+		}
+
+		public function test_transport_error_is_logged_as_error(): void {
+			Logger::$threshold = 'errors';
+			$logger = new class() {
+				public $entries = array();
+				public function log( $level, $message, $context ) { $this->entries[] = array( $level, $message, $context ); }
+			};
+			Functions\when( 'wc_get_logger' )->justReturn( $logger );
+			$error = new \WP_Error( 'network_down', 'Network unavailable.' );
+			Functions\expect( 'wp_remote_post' )->once()->andReturn( $error );
+			$this->assertSame( $error, ( new HitClient( $this->settings ) )->status( 'station1', 'ref1' ) );
+			$this->assertCount( 1, $logger->entries );
+			$this->assertSame( 'error', $logger->entries[0][0] );
+			$this->assertStringContainsString( 'HIT transport error', $logger->entries[0][1] );
+			$this->assertStringContainsString( '"error_code":"network_down"', $logger->entries[0][1] );
+			$this->assertStringContainsString( '"error_message":"Network unavailable."', $logger->entries[0][1] );
+			$this->assertStringContainsString( '"txn_type":"Status"', $logger->entries[0][1] );
+			$this->assertMatchesRegularExpression( '/"elapsed_ms":[0-9]+/', $logger->entries[0][1] );
+		}
+
 	}
 }
