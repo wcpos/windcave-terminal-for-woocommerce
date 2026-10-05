@@ -5,6 +5,10 @@
  * @package WCPOS\WooCommercePOS\WindcaveTerminal
  */
 
+if ( ! class_exists( 'WC_Order' ) ) {
+	class WC_Order {}
+}
+
 if ( ! class_exists( 'WC_Payment_Gateway' ) ) {
 	/**
 	 * Provide the settings interface used by the gateway shell.
