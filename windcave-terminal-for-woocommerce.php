@@ -89,6 +89,7 @@ add_action( 'init', __NAMESPACE__ . '\\load_textdomain' );
  */
 function init(): void {
 	add_filter( 'woocommerce_payment_gateways', array( Gateway::class, 'register_gateway' ) );
+	add_action( 'admin_post_wctwc_support_bundle', array( new SupportBundle(), 'download' ) );
 	new AjaxHandler();
 	new FprnHandler();
 	new PaymentSweeper();
