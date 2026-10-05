@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check if release is needed
+        id: check_release
+        run: |
+          set -euo pipefail
+
+          VERSION=$(grep -oP "Version:\s*\K\d+(\.\d+)*" windcave-terminal-for-woocommerce.php)
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format: $VERSION"
+            exit 1
+          fi
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          git fetch --prune --tags
+
+          if ! git tag | grep -qx "v$VERSION"; then
+            echo "Version has changed. Creating new release..."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! gh release view "v$VERSION" --json assets --jq '.assets[].name' | grep -qx 'windcave-terminal-for-woocommerce.zip'; then
+            echo "Release exists without ZIP asset. Rebuilding and uploading asset..."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Version has not changed and ZIP asset already exists. Skipping release..."
+          echo "release=false" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install composer dependencies
+        if: steps.check_release.outputs.release == 'true'
+        run: composer install --no-dev
+
+      - name: Build ZIP
+        if: steps.check_release.outputs.release == 'true'
+        run: |
+          rsync -a --exclude-from=.distignore --exclude=.distignore --exclude=windcave-terminal-for-woocommerce/ ./ windcave-terminal-for-woocommerce/
+          zip -r windcave-terminal-for-woocommerce.zip windcave-terminal-for-woocommerce/
+
+      - name: Create release and upload ZIP
+        if: steps.check_release.outputs.release == 'true'
+        run: |
+          set -euo pipefail
+
+          NOTES_FILE="docs/releases/$VERSION.md"
+          NOTES_ARGS=(--notes "Release v$VERSION")
+          if [ -f "$NOTES_FILE" ]; then
+            NOTES_ARGS=(--notes-file "$NOTES_FILE")
+          fi
+
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" windcave-terminal-for-woocommerce.zip --clobber
+            gh release edit "v$VERSION" "${NOTES_ARGS[@]}"
+          else
+            gh release create "v$VERSION" \
+              windcave-terminal-for-woocommerce.zip \
+              --title "Release v$VERSION" \
+              "${NOTES_ARGS[@]}"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
