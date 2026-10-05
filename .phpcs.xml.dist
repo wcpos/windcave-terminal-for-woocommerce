@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<ruleset xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="Windcave Terminal for WooCommerce" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/squizlabs/PHP_CodeSniffer/master/phpcs.xsd">
+	<description>Windcave Terminal for WooCommerce Rule Set.</description>
+	<file>windcave-terminal-for-woocommerce.php</file>
+	<file>includes/</file>
+
+	<arg name="extensions" value="php/PHP"/>
+	<arg value="snp"/>
+	<arg name="colors"/>
+	<arg name="basepath" value="."/>
+	<arg name="parallel" value="2"/>
+	<exclude-pattern>*/vendor/*</exclude-pattern>
+
+	<config name="minimum_supported_wp_version" value="5.2"/>
+	<config name="testVersion" value="7.4-"/>
+	<rule ref="PHPCompatibilityWP"/>
+	<rule ref="WordPress-Extra"/>
+	<rule ref="WordPress-Docs"/>
+	<exclude name="Squiz.Commenting.InlineComment.InvalidEndChar"/>
+	<rule ref="Generic.Commenting.Todo"/>
+
+	<rule ref="WordPress.Security.ValidatedSanitizedInput">
+		<properties>
+			<property name="customUnslashingSanitizingFunctions" type="array">
+				<element value="wp_verify_nonce"/>
+			</property>
+		</properties>
+	</rule>
+	<rule ref="WordPress.Files.FileName">
+		<properties>
+			<property name="strict_class_file_names" value="false"/>
+		</properties>
+		<exclude name="WordPress.Files.FileName.NotHyphenatedLowercase"/>
+	</rule>
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<properties>
+			<property name="prefixes" type="array">
+				<element value="windcave_terminal_for_woocommerce_"/>
+				<element value="wctwc"/>
+				<element value="WCTWC"/>
+				<element value="WCPOS\WooCommercePOS"/>
+			</property>
+		</properties>
+	</rule>
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="windcave-terminal-for-woocommerce"/>
+			</property>
+		</properties>
+	</rule>
+</ruleset>
