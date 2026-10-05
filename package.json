@@ -3,6 +3,6 @@
   "private": true,
   "license": "GPL-3.0-or-later",
   "scripts": {
-    "test": "node --test tests/js/"
+    "test": "node --test tests/js/*.test.js"
   }
 }
