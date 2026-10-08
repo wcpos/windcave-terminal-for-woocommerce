@@ -7,8 +7,7 @@
 
 namespace WCPOS\WooCommercePOS\WindcaveTerminal;
 
-use WCPOS\WooCommercePOS\WindcaveTerminal\Services\HitClient;
-use WCPOS\WooCommercePOS\WindcaveTerminal\Services\HitPaymentService;
+use WCPOS\WooCommercePOSPro\Payments\Server\Reader_Curation;
 
 /**
  * Register the gateway and its settings form.
@@ -22,13 +21,13 @@ class Gateway extends \WC_Payment_Gateway {
 		$this->method_title       = __( 'Windcave Terminal', 'windcave-terminal-for-woocommerce' );
 		$this->method_description = __( 'Take in-person card payments on a Windcave terminal using Windcave HIT.', 'windcave-terminal-for-woocommerce' );
 		$this->has_fields         = true;
-		$this->supports           = array( 'products' );
+		$this->supports           = array( 'products', 'refunds' );
 		$this->init_form_fields();
 		$this->init_settings();
 		$this->title       = $this->get_option( 'title' );
 		$this->description = $this->get_option( 'description' );
 		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
-		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_payment_scripts' ) );
+		$this->enabled = $this->get_option( 'enabled', 'no' );
 	}
 
 	/**
@@ -85,7 +84,7 @@ class Gateway extends \WC_Payment_Gateway {
 			),
 			'hit_key'         => array(
 				'title'   => __( 'HIT key', 'windcave-terminal-for-woocommerce' ),
-				'type'    => 'password',
+				'type'    => 'wctwc_secret',
 				'default' => '',
 			),
 			'stations'        => array(
@@ -93,17 +92,6 @@ class Gateway extends \WC_Payment_Gateway {
 				'type'        => 'textarea',
 				'default'     => '',
 				'description' => __( 'One Windcave Station ID per line. Each terminal has its own Station ID, issued by Windcave.', 'windcave-terminal-for-woocommerce' ),
-			),
-			'default_station' => array(
-				'title'   => __( 'Default Station ID', 'windcave-terminal-for-woocommerce' ),
-				'type'    => 'text',
-				'default' => '',
-			),
-			'lock_station'    => array(
-				'title'   => __( 'Lock terminal selection', 'windcave-terminal-for-woocommerce' ),
-				'type'    => 'checkbox',
-				'label'   => __( 'Cashiers cannot change the terminal at checkout; the default Station is always used.', 'windcave-terminal-for-woocommerce' ),
-				'default' => 'no',
 			),
 			'vendor_id'       => array(
 				'title'       => __( 'Vendor ID', 'windcave-terminal-for-woocommerce' ),
@@ -117,230 +105,97 @@ class Gateway extends \WC_Payment_Gateway {
 				'default' => 'WCPOS',
 			),
 			'fprn_enabled'    => array(
+				'description' => esc_url( add_query_arg( 'provider', 'windcave', rest_url( 'wcpos/v2/payments/webhook' ) ) ),
 				'title'   => __( 'Result notifications (FPRN)', 'windcave-terminal-for-woocommerce' ),
 				'type'    => 'checkbox',
 				'label'   => __( 'Ask Windcave to notify this site when a transaction result is ready (backup to polling).', 'windcave-terminal-for-woocommerce' ),
 				'default' => 'no',
 			),
-			'show_logs'       => array(
-				'title'   => __( 'Checkout logs', 'windcave-terminal-for-woocommerce' ),
-				'type'    => 'checkbox',
-				'default' => 'no',
-			),
-			'log_level'       => array(
-				'title'       => __( 'Log level', 'windcave-terminal-for-woocommerce' ),
-				'type'        => 'select',
-				'default'     => 'debug',
-				'options'     => array(
-					'off'    => __( 'Off', 'windcave-terminal-for-woocommerce' ),
-					'errors' => __( 'Errors only', 'windcave-terminal-for-woocommerce' ),
-					'debug'  => __( 'Debug (everything, recommended while testing)', 'windcave-terminal-for-woocommerce' ),
-				),
-				'description' => __( 'Logs go to WooCommerce → Status → Logs, source windcave-terminal. Debug logs every Windcave request and response with keys and card data masked.', 'windcave-terminal-for-woocommerce' ),
-			),
-			'support'         => array(
-				'type'    => 'wctwc_support',
-				'title'   => __( 'Support', 'windcave-terminal-for-woocommerce' ),
-				'default' => '',
-			),
 		);
 	}
 
 	/**
-	 * Render the support download and log links.
-	 *
-	 * @param string $key  Field key.
-	 * @param array  $data Field definition.
-	 * @return string Settings table row.
+	 * Require HIT credentials and a configured Station.
 	 */
-	public function generate_wctwc_support_html( $key, $data ): string {
-		return '<tr valign="top"><th scope="row" class="titledesc">' . esc_html( $data['title'] ) . '</th><td class="forminp">'
-			. '<a class="button" href="' . esc_url( SupportBundle::download_url() ) . '">' . esc_html__( 'Download support bundle', 'windcave-terminal-for-woocommerce' ) . '</a> '
-			. '<a href="' . esc_url( SupportBundle::logs_url() ) . '">' . esc_html__( 'View logs in WooCommerce → Status → Logs', 'windcave-terminal-for-woocommerce' ) . '</a>'
-			. '<p class="description">' . esc_html__( 'If a payment fails, download the support bundle and send it to WCPOS support together with the order number. It includes the plugin settings with the HIT key masked, recent payment attempts without receipts, and the most recent windcave-terminal log lines. Log lines may include terminal receipt text with card numbers masked.', 'windcave-terminal-for-woocommerce' ) . '</p></td></tr>';
+	public function is_available() {
+		$s = new Settings();
+		// A POS request, or the order-pay page for a user who may use the POS (Pro's panel gate);
+		// a customer paying an invoice must not see a terminal-only method.
+		$pos_context = ( function_exists( 'woocommerce_pos_request' ) && woocommerce_pos_request() ) || ( is_checkout_pay_page() && current_user_can( 'access_woocommerce_pos' ) );
+		return '' !== $s->hit_user() && '' !== $s->hit_key() && (bool) $s->station_ids() && ( parent::is_available() || ( $s->enabled_for_pos() && $pos_context ) );
 	}
-
 	/**
-	 * Keep the support controls free of a submitted setting value.
-	 *
-	 * @return string Empty value.
+	 * Render the shared Pro panel on order-pay pages.
 	 */
-	public function validate_wctwc_support_field(): string {
-		return '';
-	}
-
-	/**
-	 * Render the order-pay terminal panel.
-	 */
-	public function payment_fields(): void {
+	public function payment_fields() {
 		global $wp;
-
-		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- This is WooCommerce's gateway description filter.
-		$description = apply_filters( 'woocommerce_gateway_description', $this->get_option( 'description' ), $this->id );
-		if ( $description ) {
-			echo '<p>' . wp_kses_post( $description ) . '</p>';
+		echo wp_kses_post( wpautop( $this->get_description() ) );
+		$order = is_checkout_pay_page() ? wc_get_order( $wp->query_vars['order-pay'] ?? 0 ) : false;
+		if ( $order ) {
+			wcpos_pro_order_pay_panel( $this, $order );
 		}
-
-		$settings    = new Settings();
-		$order_id    = 0;
-		$order_token = '';
-		$order       = null;
-		if ( function_exists( 'is_checkout_pay_page' ) && is_checkout_pay_page() ) {
-			$order_id = isset( $wp->query_vars['order-pay'] ) ? absint( $wp->query_vars['order-pay'] ) : 0;
-			$order    = $order_id ? wc_get_order( $order_id ) : null;
-			if ( $order ) {
-				$order_token = PaymentRequestToken::for_order( $order_id );
-			} else {
-				$order_id = 0;
-			}
-		}
-
-		// Resume the poll loop on reload when an unfinished payment is still open
-		// for this order — otherwise a refresh mid-payment drops the cashier back
-		// to an idle panel while the payment lingers open on Windcave.
-		$resume = false;
-		if ( $order && ! $order->is_paid() ) {
-			$current = PaymentAttempt::current( $order );
-			$resume  = $current && PaymentAttempt::is_pending( (string) ( $current['status'] ?? '' ) );
-		}
-
-		$is_pos = function_exists( 'woocommerce_pos_request' ) && woocommerce_pos_request();
-		$locked = $settings->lock_station();
-		echo '<div id="wctwc-payment-interface" class="wctwc-payment-interface" data-order-id="' . esc_attr( $order_id ) . '" data-order-token="' . esc_attr( $order_token ) . '" data-default-station="' . esc_attr( $settings->default_station() ) . '" data-lock-station="' . esc_attr( $locked ? '1' : '0' ) . '" data-resume="' . esc_attr( $resume ? '1' : '0' ) . '" data-pos="' . esc_attr( $is_pos ? '1' : '0' ) . '" data-gateway-id="' . esc_attr( Settings::GATEWAY_ID ) . '">';
-		echo '<div class="wctwc-payment-card">';
-		if ( $order_id ) {
-			echo '<h4>' . esc_html__( 'Windcave Terminal', 'windcave-terminal-for-woocommerce' ) . '</h4>';
-			echo '<p class="wctwc-payment-help">' . esc_html__( 'Send this order to a Windcave terminal. Follow any prompts shown below; the order completes when the terminal approves the payment.', 'windcave-terminal-for-woocommerce' ) . '</p>';
-			echo '<label for="wctwc-station-select">' . esc_html__( 'Terminal', 'windcave-terminal-for-woocommerce' ) . '</label>';
-			echo '<select id="wctwc-station-select" class="wctwc-station-select"' . ( $locked ? ' disabled' : '' ) . '>';
-			$stations = $settings->station_ids();
-			if ( ! $locked && '' === $settings->default_station() && count( $stations ) >= 2 ) {
-				echo '<option value="" selected disabled>' . esc_html__( '— Select a terminal —', 'windcave-terminal-for-woocommerce' ) . '</option>';
-			}
-			foreach ( $stations as $station ) {
-				echo '<option value="' . esc_attr( $station ) . '"' . ( 1 === count( $stations ) || $station === $settings->default_station() ? ' selected' : '' ) . '>' . esc_html( $station ) . '</option>';
-			}
-			if ( empty( $stations ) ) {
-				echo '<option disabled>' . esc_html__( 'No Station IDs configured', 'windcave-terminal-for-woocommerce' ) . '</option>';
-			}
-			echo '</select>';
-			// One button that toggles between Start and Cancel: while a payment is
-			// in flight the panel polls automatically, so a single control both
-			// starts and cancels the terminal payment (no separate status button).
-			$action_mode  = $resume ? 'cancel' : 'start';
-			$action_label = $resume
-				? __( 'Cancel Terminal Payment', 'windcave-terminal-for-woocommerce' )
-				: __( 'Start Terminal Payment', 'windcave-terminal-for-woocommerce' );
-			echo '<div class="wctwc-payment-actions">';
-			echo '<button type="button" class="button button-primary wctwc-primary-action" data-wctwc-mode="' . esc_attr( $action_mode ) . '">' . esc_html( $action_label ) . '</button>';
-			echo '<button type="button" class="button wctwc-abandon" hidden>' . esc_html__( 'Set payment aside', 'windcave-terminal-for-woocommerce' ) . '</button>';
-			echo '</div>';
-			echo '<div class="wctwc-prompt" hidden aria-live="assertive"><p class="wctwc-prompt-line1"></p><p class="wctwc-prompt-line2"></p><div class="wctwc-prompt-buttons"></div></div>';
-			echo '<div class="wctwc-payment-status" role="status" aria-live="polite"></div>';
-		} else {
-			echo '<p class="wctwc-payment-help">' . esc_html__( 'Payment activity logs will appear here during checkout. If payment creation fails, copy these logs for support.', 'windcave-terminal-for-woocommerce' ) . '</p>';
-		}
-		echo '</div>';
-
-		// The log tools are a support aid, hidden unless the merchant opts in.
-		// The textarea itself is always present (JS writes to it) but stays
-		// collapsed; only the toolbar visibility is gated.
-		$show_logs = $settings->show_logs();
-		echo '<div class="wctwc-logging-section' . ( $show_logs ? '' : ' wctwc-logging-hidden' ) . '">';
-		if ( $show_logs ) {
-			echo '<div class="wctwc-logging-header">';
-			echo '<h4>' . esc_html__( 'Logs', 'windcave-terminal-for-woocommerce' ) . '</h4>';
-			echo '<div class="wctwc-logging-actions">';
-			echo '<button type="button" class="button wctwc-toggle-log" data-expanded="false">' . esc_html__( 'Show logs', 'windcave-terminal-for-woocommerce' ) . '</button>';
-			echo '<button type="button" class="button wctwc-copy-log">' . esc_html__( 'Copy', 'windcave-terminal-for-woocommerce' ) . '</button>';
-			echo '<button type="button" class="button wctwc-clear-log">' . esc_html__( 'Clear', 'windcave-terminal-for-woocommerce' ) . '</button>';
-			echo '</div>';
-			echo '</div>';
-		}
-		echo '<div class="wctwc-log-content" style="display: none;">';
-		echo '<textarea class="wctwc-payment-log-textarea" readonly placeholder="' . esc_attr__( 'Windcave Terminal payment activity will appear here...', 'windcave-terminal-for-woocommerce' ) . '"></textarea>';
-		echo '</div>';
-		echo '</div>';
-		echo '</div>';
-
-		echo '<noscript>' . esc_html__( 'Please enable JavaScript to use the Windcave Terminal integration.', 'windcave-terminal-for-woocommerce' ) . '</noscript>';
 	}
-
 	/**
-	 * Enqueue the payment panel assets and translated messages.
-	 */
-	public function enqueue_payment_scripts(): void {
-		wp_enqueue_script( 'wctwc-payment', WCTWC_PLUGIN_URL . 'assets/js/payment.js', array(), WCTWC_VERSION, true );
-		wp_enqueue_style( 'wctwc-payment', WCTWC_PLUGIN_URL . 'assets/css/payment.css', array(), WCTWC_VERSION );
-		wp_localize_script(
-			'wctwc-payment',
-			'wctwcPaymentData',
-			array(
-				'ajaxUrl'        => admin_url( 'admin-ajax.php' ),
-				'pollIntervalMs' => (int) apply_filters( 'wctwc_poll_interval_ms', 1500 ),
-				'pollTimeoutMs'  => (int) apply_filters( 'wctwc_poll_timeout_ms', 300000 ),
-				'i18n'           => array(
-					'startAction'        => __( 'Start Terminal Payment', 'windcave-terminal-for-woocommerce' ),
-					'cancelAction'       => __( 'Cancel Terminal Payment', 'windcave-terminal-for-woocommerce' ),
-					'abandonAction'      => __( 'Set payment aside', 'windcave-terminal-for-woocommerce' ),
-					'sending'            => __( 'Sending to terminal…', 'windcave-terminal-for-woocommerce' ),
-					'waiting'            => __( 'Waiting for terminal…', 'windcave-terminal-for-woocommerce' ),
-					'completing'         => __( 'Payment complete — finishing order…', 'windcave-terminal-for-woocommerce' ),
-					'selectStation'      => __( 'Select a terminal first.', 'windcave-terminal-for-woocommerce' ),
-					'declined'           => __( 'Payment declined. You can try again.', 'windcave-terminal-for-woocommerce' ),
-					'stationBusy'        => __( 'The terminal is still finishing an earlier transaction. Complete or cancel it on the terminal, then try again.', 'windcave-terminal-for-woocommerce' ),
-					'abandoned'          => __( 'The terminal did not respond, so the payment was set aside. Start a new payment or choose another method.', 'windcave-terminal-for-woocommerce' ),
-					'timedOut'           => __( 'Timed out waiting for the terminal. Check the terminal or try again.', 'windcave-terminal-for-woocommerce' ),
-					'requestFailed'      => __( 'Windcave Terminal request failed. Copy logs for support.', 'windcave-terminal-for-woocommerce' ),
-					'verificationFailed' => __( 'The terminal payment could not be verified. Check the payment before trying again.', 'windcave-terminal-for-woocommerce' ),
-					'conflict'           => __( 'This order was already paid by another payment. Check the terminal payment before trying again.', 'windcave-terminal-for-woocommerce' ),
-					'logsShown'          => __( 'Hide logs', 'windcave-terminal-for-woocommerce' ),
-					'logsHidden'         => __( 'Show logs', 'windcave-terminal-for-woocommerce' ),
-					'copied'             => __( 'Logs copied to clipboard.', 'windcave-terminal-for-woocommerce' ),
-					'copyFailed'         => __( 'Unable to copy logs automatically.', 'windcave-terminal-for-woocommerce' ),
-				),
-			)
-		);
-	}
-
-	/**
-	 * Complete the form submit when the terminal payment has already succeeded.
-	 *
-	 * The terminal payment is created and confirmed out-of-band via AJAX,
-	 * so by the time WooCommerce submits the order-pay form the payment is
-	 * usually already reconciled. We confirm it is paid (polling Windcave once
-	 * more if needed) and hand WooCommerce the thank-you redirect the POS listens for.
+	 * Delegate completion handling to Pro.
 	 *
 	 * @param int $order_id WooCommerce order ID.
-	 * @return array Payment result and redirect when paid.
 	 */
 	public function process_payment( $order_id ) {
-		$order = wc_get_order( $order_id );
-		if ( ! $order ) {
-			return array( 'result' => 'failure' );
-		}
-		if ( ! $order->is_paid() ) {
-			try {
-				$settings = new Settings();
-				$service  = new HitPaymentService( new HitClient( $settings ), $settings );
-				$result   = $service->poll( $order );
-				if ( 'paid' === ( $result['status'] ?? '' ) ) {
-					$refreshed = wc_get_order( $order_id );
-					if ( $refreshed ) {
-						$order = $refreshed;
-					}
-				}
-			} catch ( \Exception $e ) {
-				Logger::log( 'Windcave Terminal process_payment could not verify payment: ' . $e->getMessage(), array(), 'error' );
-			}
-		}
-		if ( $order->is_paid() ) {
-			return array(
-				'result'   => 'success',
-				'redirect' => AjaxHandler::order_return_url( $order ),
-			);
-		}
-		wc_add_notice( __( 'This order has not been paid yet. Start the payment above and wait for the terminal to approve it; the order finishes on its own.', 'windcave-terminal-for-woocommerce' ), 'notice' );
-		return array( 'result' => 'failure' );
+		return wcpos_pro_order_pay_process( wc_get_order( $order_id ) );
+	}
+	/**
+	 * Delegate refund identity and allocation to Pro.
+	 *
+	 * @param int         $order_id WooCommerce order ID.
+	 * @param string|null $amount Decimal refund amount.
+	 * @param string      $reason Refund reason.
+	 */
+	public function process_refund( $order_id, $amount = null, $reason = '' ) {
+		return wcpos_pro_order_pay_refund( wc_get_order( $order_id ), $amount, $reason );
+	}
+	/**
+	 * Render a blank secret input without exposing the saved key.
+	 *
+	 * @param string $key Setting key.
+	 * @param array  $data Setting field definition.
+	 */
+	public function generate_wctwc_secret_html( $key, $data ) {
+		$saved = $this->settings[ $key ] ?? '';
+		$this->settings[ $key ] = '';
+		$html = $this->generate_password_html(
+			$key,
+			$data + array(
+				'placeholder' => __( 'Leave blank to keep the saved key.', 'windcave-terminal-for-woocommerce' ),
+				'custom_attributes' => array( 'autocomplete' => 'new-password' ),
+			)
+		);
+		$this->settings[ $key ] = $saved;
+		return $html;
+	}
+	/**
+	 * Keep the saved key when an administrator leaves the input blank.
+	 *
+	 * @param string $key Setting key.
+	 * @param string $value Button label.
+	 */
+	public function validate_wctwc_secret_field( $key, $value ) {
+		return '' === trim( $value ) ? $this->get_option( $key ) : trim( $value );
+	}
+	/**
+	 * Save settings and clear Pro reader discovery.
+	 */
+	public function process_admin_options() {
+		$result = parent::process_admin_options();
+		Reader_Curation::forget( $this->id );
+		return $result;
+	}
+	/**
+	 * Show configuration health and the WooCommerce log link.
+	 */
+	public function admin_options(): void {
+		parent::admin_options();
+		$s = new Settings();
+		echo '<p>' . esc_html( $s->environment() . ': ' . ( $s->hit_user() && $s->hit_key() ? __( 'HIT credentials configured (not verified).', 'windcave-terminal-for-woocommerce' ) : __( 'HIT credentials missing.', 'windcave-terminal-for-woocommerce' ) ) ) . '</p>';
+		echo '<p><a href="' . esc_url( admin_url( 'admin.php?page=wc-status&tab=logs&source=windcave-terminal' ) ) . '">' . esc_html__( 'View logs', 'windcave-terminal-for-woocommerce' ) . '</a></p>';
 	}
 }

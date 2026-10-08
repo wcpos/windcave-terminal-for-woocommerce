@@ -8,7 +8,7 @@
 namespace WCPOS\WooCommercePOS\WindcaveTerminal\Services;
 
 use DOMDocument;
-use WCPOS\WooCommercePOS\WindcaveTerminal\Logger;
+use WCPOS\WooCommercePOSPro\Payments\Server\Redactor;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Settings;
 
 /**
@@ -73,16 +73,18 @@ class HitClient {
 	 *
 	 * @param string $station Station ID.
 	 * @param string $txn_ref Transaction reference.
+	 * @param float  $timeout Remaining request budget in seconds.
 	 * @return HitResponse|\WP_Error
 	 */
-	public function status( string $station, string $txn_ref ) {
+	public function status( string $station, string $txn_ref, float $timeout = 30 ) {
 		return $this->send(
 			'Status',
 			array(
 				'Station' => $station,
 				'TxnType' => 'Status',
 				'TxnRef' => $txn_ref,
-			)
+			),
+			$timeout
 		);
 	}
 
@@ -97,7 +99,7 @@ class HitClient {
 	 */
 	public function ui( string $station, string $txn_ref, string $button, string $value ) {
 		if ( ! in_array( $button, array( 'B1', 'B2' ), true ) || ! in_array( $value, array( 'YES', 'NO', 'CANCEL' ), true ) ) {
-			return new \WP_Error( 'wctwc_hit_invalid_ui', 'Invalid HIT UI button or value.' );
+			return new \WP_Error( 'wctwc_hit_invalid_ui', 'Invalid HIT UI button or value.', array( 'status' => 400 ) );
 		}
 		return $this->send(
 			'UI',
@@ -167,65 +169,39 @@ class HitClient {
 	 *
 	 * @param string $txn_type Transaction type.
 	 * @param array  $fields   Ordered element values.
+	 * @param float  $timeout Request timeout in seconds.
 	 * @return HitResponse|\WP_Error
 	 */
-	private function send( string $txn_type, array $fields ) {
-		$started = microtime( true );
-		$xml     = $this->build_request( $txn_type, $fields );
-		$url     = $this->settings->endpoint_url();
-		Logger::xml(
-			'HIT request',
-			$xml,
-			array(
-				'txn_type' => $txn_type,
-				'endpoint' => $url,
-			)
-		);
+	private function send( string $txn_type, array $fields, float $timeout = 30 ) {
+		$xml = $this->build_request( $txn_type, $fields );
+		$this->log( 'HIT request ' . $txn_type, $xml );
 		$response = wp_remote_post(
-			$url,
+			$this->settings->endpoint_url(),
 			array(
-				'timeout' => 30,
+				'timeout' => $timeout,
 				'headers' => array( 'Content-Type' => 'text/xml; charset=utf-8' ),
-				'body'    => $xml,
+				'body' => $xml,
 			)
 		);
+		$body = is_wp_error( $response ) ? $response->get_error_message() : wp_remote_retrieve_body( $response );
+		$this->log( 'HIT response ' . $txn_type, $body );
 		if ( is_wp_error( $response ) ) {
-			Logger::log(
-				'HIT transport error',
-				array(
-					'txn_type' => $txn_type,
-					'endpoint' => $url,
-					'error_code' => $response->get_error_code(),
-					'error_message' => $response->get_error_message(),
-					'elapsed_ms' => Logger::elapsed_ms( $started ),
-				),
-				'error'
-			);
 			return $response;
 		}
-		$status_code = wp_remote_retrieve_response_code( $response );
-		$body        = wp_remote_retrieve_body( $response );
-		$context     = array(
-			'txn_type' => $txn_type,
-			'http_code' => $status_code,
-			'elapsed_ms' => Logger::elapsed_ms( $started ),
-		);
-		if ( 200 !== $status_code ) {
-			Logger::xml( 'HIT HTTP ' . $status_code . ' response', $body, $context, 'error' );
-			return new \WP_Error( 'wctwc_hit_http', 'HIT request failed.', $status_code );
-		}
-		Logger::xml( 'HIT response', $body, $context );
-		$result = HitResponse::from_xml( $body );
-		if ( is_wp_error( $result ) ) {
-			Logger::log(
-				'HIT response could not be parsed',
-				array(
-					'txn_type' => $txn_type,
-					'error_code' => $result->get_error_code(),
-				),
-				'error'
-			);
-		}
-		return $result;
+		$code = wp_remote_retrieve_response_code( $response );
+		return 200 === $code ? HitResponse::from_xml( $body ) : new \WP_Error( 'wctwc_hit_http', 'HIT request failed.', $code );
+	}
+	/**
+	 * Mask HIT secrets/cardholder elements before Pro's free-text redactor sees XML.
+	 *
+	 * @param string $label Exchange label.
+	 * @param string $xml Untrusted XML body.
+	 */
+	private function log( string $label, string $xml ): void {
+		$xml = preg_replace( '/\bkey\s*=\s*([\'"]).*?\1/is', 'key="[redacted]"', $xml );
+		$xml = preg_replace( '#<(Key|HITKey|CN|CardNumber|CH|CardHolder)[^>]*>.*?</\1>#is', '[redacted]', $xml );
+		$xml = str_replace( $this->settings->hit_key(), '[redacted]', $xml );
+		$xml = preg_replace_callback( '#(<Rcpt>)(.*?)(</Rcpt>)#is', static fn( $receipt ) => $receipt[1] . preg_replace_callback( '/[0-9* ]{8,}/', static fn( $run ) => str_repeat( '*', strlen( $run[0] ) - 4 ) . substr( $run[0], -4 ), $receipt[2] ) . $receipt[3], $xml );
+		wc_get_logger()->debug( $label . ' ' . preg_replace( '/\s+/', ' ', Redactor::message( $xml ) ), array( 'source' => 'windcave-terminal' ) );
 	}
 }

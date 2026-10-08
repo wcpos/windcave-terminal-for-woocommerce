@@ -212,6 +212,17 @@ final class HitResponse {
 		return (int) $this->result( 'AmtA' );
 	}
 
+	/** Get the charged currency when HIT reports it; absence is not confirmation. */
+	public function currency(): string {
+		foreach ( array( 'CurrencyInput', 'Cur', 'CurrencyName' ) as $name ) {
+			$value = trim( $this->field( $name ) ? $this->field( $name ) : $this->result( $name ) );
+			if ( '' !== $value ) {
+				return $value;
+			}
+		}
+		return '';
+	}
+
 	/** Get the DPS transaction reference. */
 	public function dps_txn_ref(): string {
 		if ( '' !== $this->field( 'DpsTxnRef' ) ) {

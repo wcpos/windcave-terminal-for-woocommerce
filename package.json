@@ -1,8 +1,10 @@
 {
   "name": "windcave-terminal-for-woocommerce",
   "private": true,
-  "license": "GPL-3.0-or-later",
+  "description": "Dev tooling only: wp-env runs the WordPress-based test suite against a sibling WCPOS Pro checkout.",
+  "devDependencies": { "@wordpress/env": "^10.0.0" },
   "scripts": {
-    "test": "node --test tests/js/*.test.js"
+    "wp-env": "wp-env",
+    "test:php": "wp-env run --env-cwd=\"wp-content/plugins/$(basename \"$PWD\")\" tests-cli -- vendor/bin/phpunit -c phpunit.xml.dist --filter 'Tests\\\\'"
   }
 }

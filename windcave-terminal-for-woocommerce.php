@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Windcave Terminal for WooCommerce
  * Description: Take in-person card payments on a Windcave terminal (HIT) from WooCommerce POS.
- * Version:     0.1.0
+ * Version:     1.0.0
  * Author:      kilbot
  * Author URI:  https://kilbot.com/
  * Update URI:  https://github.com/wcpos/windcave-terminal-for-woocommerce
@@ -21,7 +21,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WCTWC_VERSION', '0.1.0' );
+define( 'WCTWC_VERSION', '1.0.0' );
 define( 'WCTWC_PLUGIN_FILE', __FILE__ );
 define( 'WCTWC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WCTWC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -55,7 +55,6 @@ function wctwc_activate(): void {
 			deactivate_plugins( plugin_basename( __FILE__ ) );
 			wp_die( esc_html__( 'Windcave Terminal for WooCommerce requires the PHP DOM extension (php-xml). Ask your host to enable it.', 'windcave-terminal-for-woocommerce' ) );
 		}
-		Logger::log( 'Plugin activated', Logger::environment(), 'info' );
 		return;
 	}
 	deactivate_plugins( plugin_basename( __FILE__ ) );
@@ -76,7 +75,7 @@ register_activation_hook( __FILE__, __NAMESPACE__ . '\\wctwc_activate' );
  * Remove the payment sweep on deactivation.
  */
 function wctwc_deactivate(): void {
-	PaymentSweeper::unschedule();
+	wp_clear_scheduled_hook( 'wctwc_sweep_stale_payments' );
 }
 register_deactivation_hook( __FILE__, __NAMESPACE__ . '\\wctwc_deactivate' );
 
@@ -92,11 +91,18 @@ add_action( 'init', __NAMESPACE__ . '\\load_textdomain' );
  * Register the WooCommerce gateway.
  */
 function init(): void {
+	if ( ! function_exists( 'wcpos_pro_requires' ) || ! wcpos_pro_requires( '2.0.0', __FILE__ ) ) {
+		add_action(
+			'admin_notices',
+			static function () {
+				echo '<div class="notice notice-error"><p>' . esc_html__( 'Windcave Terminal requires WooCommerce POS Pro 2.0 or newer.', 'windcave-terminal-for-woocommerce' ) . '</p></div>';
+			}
+		);
+		return;
+	}
 	add_filter( 'woocommerce_payment_gateways', array( Gateway::class, 'register_gateway' ) );
-	add_action( 'admin_post_wctwc_support_bundle', array( new SupportBundle(), 'download' ) );
-	new AjaxHandler();
-	new FprnHandler();
-	new PaymentSweeper();
+	wcpos_pro_register_server_provider( Settings::GATEWAY_ID, Provider_Adapter::class );
+	add_action( 'init', array( Legacy_Adoption::class, 'upgrade' ), 20 );
 }
 add_action( 'plugins_loaded', __NAMESPACE__ . '\\init', 11 );
 
