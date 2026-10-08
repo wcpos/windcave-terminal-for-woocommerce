@@ -1,88 +1,60 @@
-# Windcave Terminal for WooCommerce
+# Windcave Terminal for WooCommerce 1.0.0
 
-Take in-person card payments on a Windcave terminal using HIT from the WooCommerce POS order-pay page. The plugin sends a Purchase, follows terminal progress and reconciles the WooCommerce order from the HIT result.
+Windcave HIT payments on WooCommerce POS Pro's shared payments base. **Requires WooCommerce POS Pro 2.0 or newer**, WooCommerce and PHP 7.4+ with DOM/libxml. The WordPress dependency header names WooCommerce only; without compatible Pro the gateway is not registered and an administrator notice explains why.
 
-## Status: pre-release, not certified
+## Pre-release — not certified
 
-- Not yet run against a Windcave account. Every request and response shape comes from Windcave's published HIT documentation and is covered by unit tests against those examples.
-- Not yet run on a physical terminal.
-- Windcave QA certification is required before production use. All POS integrations must be officially certified by Windcave QA before the solution can be used in production.
-- The `VendorId` is agreed with Windcave.
+Mocks are not Windcave certification. No Windcave account or physical terminal has been tested. Production release remains manual and requires Windcave QA approval. UAT station availability without hardware, actual prompt timing, receipts, FPRN delivery and the parser's `Result/TR` fallback for DpsTxnRef remain unverified.
 
-## Untested until hardware and a Windcave account are available
-
-- Card present, PIN and contactless.
-- The signature-verification prompt and its YES/NO answers.
-- Real prompt wording and timing.
-- Receipt text from a real terminal.
-- The `DpsTxnRef` location in real responses (the parser falls back to `Result/TR`).
-- FPRN query parameter names (the receiver currently accepts `txnRef` or `TxnRef`).
-- Whether a UAT Station answers without a device; there is no documented simulated terminal.
-- Tipping, surcharge and cash-out (not supported).
-- Refunds (see below).
-
-## How it works
-
-On the order-pay page, the cashier:
-
-1. Picks a Station and starts the payment (or uses the locked default Station).
-2. The plugin records a unique `TxnRef` on the order before sending a HIT Purchase.
-3. The page polls HIT Status while the customer uses the terminal. Terminal display lines and enabled buttons are mirrored on the page, including YES/NO and CANCEL prompts.
-4. Cancel uses the terminal's enabled CANCEL button when offered. Otherwise the cashier can cancel on the terminal or set the payment aside for follow-up.
-5. The order completes only after approval, a match between the requested `TxnRef` and an attempt recorded on this order, an amount match in cents, and an environment match. The order total and currency must also still match the attempt.
-6. A non-empty receipt is stored in the order meta and a private order note.
-
-If the Station reports an existing transaction (`PC`), the new attempt does not start: finish or cancel the earlier transaction on the terminal before trying again. Optional FPRN result notifications provide a backstop to browser polling: Windcave sends an HTTP GET to `UrlSuccess`/`UrlFail` at signature verification and result display, with up to six retries; the receiver checks the recorded `TxnRef` by querying HIT Status. A scheduled 10-minute sweep checks stale pending attempts and payments set aside by the cashier, including when the browser has closed. The FPRN query parameter names and real-world delivery remain unconfirmed.
+The `next` lane is 1.0; `main` remains the 0.x line for older POS installations. Do not upgrade an older POS installation to this release without Pro 2.0.
 
 ## Setup
 
-You need WordPress, WooCommerce, WooCommerce POS, PHP 7.4 or newer, and HIT credentials from Windcave. Windcave issues a HIT username, key and one Station ID per terminal. Request a development account through Windcave's [Integration Requirements form](https://www.windcave.com/merchant-attended-developer-hit). The plugin uses `https://uat.windcave.com/hit/pos.aspx` for UAT and `https://sec.windcave.com/hit/pos.aspx` for production; production use requires certification.
+In **WooCommerce → Settings → Payments → Windcave Terminal**, enter the HIT username and key, UAT/production environment, Station IDs (one per line), certified Vendor ID and POS name. Blank key submissions preserve the saved secret; the settings form never renders it. Windcave issues separate credentials for each environment.
 
-In **WooCommerce → Settings → Payments → Windcave Terminal**, set:
+Enable the gateway in **WooCommerce POS → Settings → Checkout**. Pro owns the allowed-reader list, default Station and selection lock. The extension no longer has separate default/lock Station settings or checkout log controls. Reconfigure those selections in Pro when upgrading.
 
-- **Enable/Disable** — Enables the gateway for online store checkout; it is not needed for WooCommerce POS.
-- **Title** — Customer-facing payment method name.
-- **Description** — Checkout description of the payment method.
-- **Environment** — UAT (default) or production HIT endpoint; use credentials for the selected environment.
-- **HIT username** — Username issued by Windcave for HIT.
-- **HIT key** — Key issued by Windcave for HIT.
-- **Station IDs** — Windcave-issued Station IDs, one per line, one for each terminal.
-- **Default Station ID** — Preselected Station, also used when no Station is selected.
-- **Lock terminal selection** — Always uses the default Station and prevents cashier changes when a default is set.
-- **Vendor ID** — `VendorId` agreed with Windcave during certification; leave empty until issued.
-- **POS name** — Name sent as `DeviceId` and `PosName` (defaults to `WCPOS`).
-- **Result notifications (FPRN)** — Sends signed `UrlSuccess` and `UrlFail` URLs with the Purchase as a backup to polling; off by default.
-- **Checkout logs** — Shows log tools on the order-pay panel; off by default.
+## Taking a payment
 
-Enable the gateway separately in **WooCommerce POS → Settings → Checkout** to use it in POS. This works without enabling it for online store checkout.
+The app-started server flow and Pro's order-pay panel use the same adapter and ledger row. On the POS order-pay panel, select a Station, start the payment and answer the terminal's enabled prompts (for example signature YES/NO). The native POS terminal view's prompt UI is a separate app rollout; this extension does not add app UI.
 
-## Sending diagnostics
+Pro owns polling, deadlines, locking, pending-balance reservation, completion, activity history and reconciliation after a browser closes. The adapter sends the row's amount, not the order total. When HIT reports the currency it charged, the adapter uses it; the sent currency is only a fallback when the reply omits currency. Free rejects a reported amount or currency mismatch.
 
-The **Log level** setting defaults to **Debug (everything, recommended while testing)**. Logs are available at **WooCommerce → Status → Logs**, source `windcave-terminal`.
+Cancel requires the terminal's currently enabled **CANCEL** button. If none is offered, cancel on the terminal. Cancel acknowledgement is not a payment result: a completed sale can still win. There is no local “set aside and take another payment” escape.
 
-If a payment fails, open **WooCommerce → Settings → Payments → Windcave Terminal** and click **Download support bundle**. The JSON file includes the environment, plugin settings with the HIT key masked (and its length recorded) and the HIT username masked after its first three characters, attempts from up to 20 recent orders without stored receipts, and the last 1000 lines from the two newest `windcave-terminal` log files. Log lines may include terminal receipt text with card numbers masked.
+A busy Station (`PC`) asks the cashier to finish or cancel its earlier transaction. A lost Purchase response retains the pending reservation. Replay queries Status with the same deterministic TxnRef before considering another Purchase. Existing actions keep their original HIT settings and environment when the gateway settings change.
 
-Download the bundle and send it with the order number to WCPOS support. The **View logs in WooCommerce → Status → Logs** link opens the logs; if WooCommerce uses the database log handler, export those logs there as well.
+## Result notifications (FPRN)
+
+Enable FPRN to send these generated GET callback URLs with Purchase:
+
+`https://your-store.example/wp-json/wcpos/v2/payments/webhook?provider=windcave&txnRef=<TxnRef>`
+
+FPRN is **an unsigned hint**, not proof of payment. Unknown TxnRefs are rejected before any outbound HIT request. Known references trigger authoritative Status; query-supplied payment results are never trusted. Pro settles the resulting ledger patch. Keep the route publicly reachable.
 
 ## Refunds
 
-Not supported from WooCommerce in this version. Refund in the Windcave portal (Payline) or on the terminal, then record the refund in WooCommerce manually.
+WooCommerce refunds use HIT matched Refund: the original DpsTxnRef, a deterministic refund TxnRef and the requested amount. Historical webview sales use the order transaction reference and Pro's configured default Station. Configure that default before refunding historical sales.
+
+Partial refunds send the requested partial amount, so the fixture declares `partial_refund` supported. This follows the amount-bearing matched-refund request in [Windcave's HIT guide, §5.4.1](https://www.windcave.com/Document/Windcave-HIT.pdf); live partial-refund acceptance is unverified. An indeterminate refund remains pending with its TxnRef: check the Windcave portal before any further refund. Manual capture, tips, surcharge, cash-out and provider expiry are unsupported.
+
+## Diagnostics
+
+The settings page shows configured/missing credentials and environment (not a remote credential validation), plus a link to WooCommerce logs, source `windcave-terminal`. HIT requests/responses pass through XML masking and Pro's redactor. Pro supplies the **support bundle row on this page**; the extension no longer has its own bundle download. Send that bundle and the order number to support.
+
+## Upgrade
+
+The upgrade routine adopts pending 0.x current attempts into Pro's ledger without another Purchase, preserving their amount, currency, Station and environment. Old meta remains inert and the old sweeper cron is cleared. Adoption failures are logged and leave the upgrade unfinished rather than marking it complete.
 
 ## Development
 
+Use an installed sibling `../woocommerce-pos-pro` at `next` and this worktree's running wp-env. Always filter PHPUnit:
+
 ```sh
-composer install
-composer test
-composer lint
-npm test
+npx wp-env run --env-cwd='wp-content/plugins/95-wc-1.0' tests-cli -- vendor/bin/phpunit -c phpunit.xml.dist --filter 'Tests\\Conformance\\'
+npx wp-env run --env-cwd='wp-content/plugins/95-wc-1.0' tests-cli -- vendor/bin/phpunit -c phpunit.xml.dist --filter 'Tests\\Includes\\'
 ```
 
-HIT XML fixtures live in `tests/fixtures/hit/`. `status-approved.xml` and `status-in-progress.xml` preserve Windcave's published approved and in-progress Status examples; the other fixtures exercise declined, signature, CANCEL, `PC` and `PJ` cases based on the HIT documentation. These tests do not replace testing with a Windcave account and hardware.
-
-## Releasing
-
-The release workflow is manual (`workflow_dispatch`) until Windcave certifies the integration. It does not release on merge or push.
-
-## Licence
+The conformance fixture fakes only HIT HTTP transport using the XML examples in `tests/fixtures/hit`. Golden adapter-operation transcripts (including actual Purchase/recovery and UI details) live in `tests/includes/Conformance/transcripts`. Recording is explicit via `env WCPOS_RECORD_TRANSCRIPTS=1` inside the PHPUnit container; review the files and rerun without recording. CI compares, never records. A green transcript is not certification.
 
 GPL-3.0-or-later.

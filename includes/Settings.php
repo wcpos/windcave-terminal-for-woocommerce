@@ -112,7 +112,7 @@ class Settings {
 	}
 
 	/**
-	 * Get unique Station IDs in configured order, including the default.
+	 * Get unique Station IDs in configured order.
 	 */
 	public function station_ids(): array {
 		$ids = array();
@@ -122,25 +122,7 @@ class Settings {
 				$ids[] = $id;
 			}
 		}
-		$default = $this->default_station();
-		if ( '' !== $default && ! in_array( $default, $ids, true ) ) {
-			$ids[] = $default;
-		}
 		return $ids;
-	}
-
-	/**
-	 * Get the default Station ID.
-	 */
-	public function default_station(): string {
-		return trim( (string) $this->get( 'default_station' ) );
-	}
-
-	/**
-	 * Whether checkout must use the configured default Station.
-	 */
-	public function lock_station(): bool {
-		return 'yes' === $this->get( 'lock_station' ) && '' !== $this->default_station();
 	}
 
 	/**
@@ -163,20 +145,5 @@ class Settings {
 	 */
 	public function fprn_enabled(): bool {
 		return 'yes' === $this->get( 'fprn_enabled' );
-	}
-
-	/**
-	 * Whether checkout log tools are shown.
-	 */
-	public function show_logs(): bool {
-		return 'yes' === $this->get( 'show_logs' );
-	}
-
-	/**
-	 * Get the diagnostic log threshold.
-	 */
-	public function log_level(): string {
-		$level = $this->get( 'log_level', 'debug' );
-		return in_array( $level, array( 'off', 'errors', 'debug' ), true ) ? $level : 'debug';
 	}
 }

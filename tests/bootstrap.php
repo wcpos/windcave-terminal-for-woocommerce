@@ -1,18 +1,9 @@
 <?php
-/**
- * PHPUnit bootstrap.
- *
- * @package WCPOS\WooCommercePOS\WindcaveTerminal
- */
-
-require_once dirname( __DIR__ ) . '/vendor/autoload.php';
-
-define( 'ABSPATH', '/tmp/wordpress/' );
-define( 'WCTWC_VERSION', '0.0.0-test' );
-define( 'WCTWC_PLUGIN_FILE', dirname( __DIR__ ) . '/windcave-terminal-for-woocommerce.php' );
-define( 'WCTWC_PLUGIN_DIR', dirname( __DIR__ ) . '/' );
-define( 'WCTWC_PLUGIN_URL', 'http://localhost/wp-content/plugins/windcave-terminal-for-woocommerce/' );
-define( 'WCTWC_MINIMUM_PHP_VERSION', '7.4' );
-define( 'WCTWC_MINIMUM_PHP_VERSION_ID', 70400 );
-
-require_once __DIR__ . '/stubs/woocommerce.php';
+$tests_dir = getenv( 'WP_TESTS_DIR' ) ?: getenv( 'WP_PHPUNIT__DIR' ) ?: '/tmp/wordpress-tests-lib';
+require_once $tests_dir . '/includes/functions.php';
+tests_add_filter( 'muplugins_loaded', static function () {
+	require dirname( __DIR__ ) . '/windcave-terminal-for-woocommerce.php';
+}, 11 );
+require dirname( __DIR__ ) . '/../woocommerce-pos-pro/tests/bootstrap.php';
+require_once dirname( __DIR__ ) . '/../woocommerce-pos-pro/tests/includes/Conformance/Conformance_Fixture.php';
+require_once dirname( __DIR__ ) . '/../woocommerce-pos-pro/tests/includes/Conformance/Provider_Conformance_Test_Case.php';
