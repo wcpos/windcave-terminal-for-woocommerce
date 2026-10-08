@@ -30,6 +30,10 @@ PHP_CODE;
 		$this->assertFalse( $data['adapter_loaded'] ); $this->assertFalse( $data['upgrade'] );
 		$this->assertStringContainsString( 'WooCommerce POS Pro 2.0', $data['notice'] );
 	}
+	public function test_gate_runs_after_pro_defines_its_helpers(): void {
+		// Pro's Activator hooks plugins_loaded at 20 and that is what requires wcpos-pro-functions.php.
+		$this->assertSame( 30, has_action( 'plugins_loaded', 'WCPOS\\WooCommercePOS\\WindcaveTerminal\\init' ) );
+	}
 	public function test_successful_gate_registers_provider_and_gateway(): void {
 		\WCPOS\WooCommercePOS\WindcaveTerminal\init();
 		$this->assertTrue( \WCPOS\WooCommercePOSPro\Payments\Server\Server_Providers::instance()->has( \WCPOS\WooCommercePOS\WindcaveTerminal\Settings::GATEWAY_ID ) );
