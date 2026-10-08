@@ -133,7 +133,8 @@ class Test_Provider_Adapter extends \WP_UnitTestCase {
 		finally { remove_filter( 'woocommerce_logger_log_message', $filter, 10 ); }
 		$this->assertSame( array( 'status' => $expected, 'provider_ref' => 'refund-dps' ), $result );
 		$this->assertSame( $delayed ? array( 'Purchase', 'Refund', 'Status' ) : array( 'Purchase', 'Refund' ), array_column( $this->fixture->raw_calls, 'type' ) );
-		if ( 'failed' === $expected ) {
+		// A money mismatch is recorded as pending (Windcave moved money; the merchant reconciles) and logged.
+		if ( 'pending' === $expected ) {
 			$this->assertNotEmpty( $messages );
 			$this->assertStringContainsString( '4569', $messages[0] );
 			$this->assertStringContainsString( 'requested 5.00 EUR', $messages[0] );
@@ -145,13 +146,23 @@ class Test_Provider_Adapter extends \WP_UnitTestCase {
 		foreach ( array( false, true ) as $delayed ) {
 			$source = $delayed ? 'Status' : 'Refund';
 			$cases[ $source . ' equal' ] = array( '500', 'EUR', 'succeeded', $delayed );
-			$cases[ $source . ' amount mismatch' ] = array( '400', 'EUR', 'failed', $delayed );
-			$cases[ $source . ' currency mismatch' ] = array( '500', 'USD', 'failed', $delayed );
+			$cases[ $source . ' amount mismatch' ] = array( '400', 'EUR', 'pending', $delayed );
+			$cases[ $source . ' currency mismatch' ] = array( '500', 'USD', 'pending', $delayed );
 			$cases[ $source . ' absent currency' ] = array( '500', '', 'succeeded', $delayed );
 		}
 		return $cases;
 	}
 
+	/** Reviewer pass 2: a PJ Status mid-poll (the Refund still registering) is not a result — never `failed`. */
+	public function test_refund_pj_mid_poll_stays_pending_with_the_txn_ref(): void {
+		$ref = $this->start( 'refund_pending' );
+		$row = $this->row;
+		$row['provider_refs'] = array( 'action' => $ref, 'transaction_id' => 'original-dps' );
+		$this->fixture->response_override = Windcave_Conformance_Fixture::response( '<Scr><Complete>1</Complete><ReCo>PJ</ReCo><TxnStatusId>0</TxnStatusId><Result><AP>0</AP></Result></Scr>' );
+		$result = $this->adapter->refund( $row, 4570, '5.00' );
+		$this->assertSame( 'pending', $result['status'], 'PJ must keep the refund pending, not fail it' );
+		$this->assertSame( substr( md5( 'refund-4570' ), 0, 16 ), $result['provider_ref'] );
+	}
 	public function test_unfinished_refund_is_bounded_and_logs_portal_check(): void {
 		$ref = $this->start( 'refund_pending' );
 		$row = $this->row;

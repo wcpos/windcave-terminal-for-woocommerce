@@ -119,7 +119,9 @@ class Gateway extends \WC_Payment_Gateway {
 	 */
 	public function is_available() {
 		$s = new Settings();
-		$pos_context = ( function_exists( 'woocommerce_pos_request' ) && woocommerce_pos_request() ) || is_checkout_pay_page();
+		// A POS request, or the order-pay page for a user who may use the POS (Pro's panel gate);
+		// a customer paying an invoice must not see a terminal-only method.
+		$pos_context = ( function_exists( 'woocommerce_pos_request' ) && woocommerce_pos_request() ) || ( is_checkout_pay_page() && current_user_can( 'access_woocommerce_pos' ) );
 		return '' !== $s->hit_user() && '' !== $s->hit_key() && (bool) $s->station_ids() && ( parent::is_available() || ( $s->enabled_for_pos() && $pos_context ) );
 	}
 	/**

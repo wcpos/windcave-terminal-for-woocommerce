@@ -14,7 +14,7 @@ class Test_Gateway extends \WP_UnitTestCase {
 		}
 	}
 	/** @dataProvider availability_contexts */
-	public function test_availability_respects_pos_and_web_enablement( string $web, bool $pos, string $context, string $missing, bool $expected ): void {
+	public function test_availability_respects_pos_and_web_enablement( string $web, bool $pos, string $context, string $missing, bool $expected, string $role = 'administrator' ): void {
 		global $wp;
 		$old_query = $wp->query_vars;
 		$wp->query_vars = 'pos' === $context ? array( 'wcpos' => 1 ) : ( 'order-pay' === $context ? array( 'order-pay' => 1234 ) : array() );
@@ -27,6 +27,7 @@ class Test_Gateway extends \WP_UnitTestCase {
 		$options = array( 'enabled' => $web, 'hit_user' => 'user', 'hit_key' => 'secret', 'stations' => 'station-1' );
 		if ( $missing ) { $options[ $missing ] = ''; }
 		update_option( 'woocommerce_' . Settings::GATEWAY_ID . '_settings', $options );
+		wp_set_current_user( '' === $role ? 0 : self::factory()->user->create( array( 'role' => $role ) ) );
 		try {
 			$this->assertSame( $pos, ( new Settings() )->enabled_for_pos() );
 			$this->assertSame( 'pos' === $context, woocommerce_pos_request() );
@@ -42,6 +43,11 @@ class Test_Gateway extends \WP_UnitTestCase {
 		$cases = array();
 		foreach ( array( 'order-pay', 'pos', 'storefront' ) as $context ) {
 			$cases[ $context . ' POS only' ] = array( 'no', true, $context, '', 'storefront' !== $context );
+			if ( 'order-pay' === $context ) {
+				// A customer paying an invoice, or nobody logged in, must not see a terminal-only method.
+				$cases[ 'order-pay POS only customer' ] = array( 'no', true, $context, '', false, 'subscriber' );
+				$cases[ 'order-pay POS only anonymous' ] = array( 'no', true, $context, '', false, '' );
+			}
 			$cases[ $context . ' web only' ] = array( 'yes', false, $context, '', true );
 			$cases[ $context . ' neither' ] = array( 'no', false, $context, '', false );
 			foreach ( array( 'hit_user', 'hit_key' ) as $missing ) {

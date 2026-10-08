@@ -297,7 +297,10 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 		$r = $this->checked( $client->refund( $station, $ref, $amount, $row['currency'], $row['provider_refs']['transaction_id'], 'Refund #' . $refund_id ) );
 		// HIT Refund is a terminal transaction like Purchase; this polling behavior is unverified live.
 		$deadline = microtime( true ) + self::REFUND_POLL_SECONDS;
-		while ( ( is_wp_error( $r ) || ! $r->complete() ) && microtime( true ) < $deadline ) {
+		// PJ ("no such TxnRef yet") is not a result: a Status can overtake a Refund that is still
+		// registering, exactly the case the Purchase PJ grace exists for. Keep polling.
+		$unfinished = static fn( $r ): bool => is_wp_error( $r ) || ! $r->complete() || 'PJ' === $r->reco();
+		while ( $unfinished( $r ) && microtime( true ) < $deadline ) {
 			usleep( (int) ( min( 2, max( 0, $deadline - microtime( true ) ) ) * 1000000 ) );
 			$remaining = $deadline - microtime( true );
 			if ( $remaining <= 0 ) {
@@ -307,17 +310,19 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 		}
 		if ( ! is_wp_error( $r ) && $r->approved() && ( $r->amount_cents() !== (int) round( (float) $amount * 100 ) || ( '' !== $r->currency() && $row['currency'] !== $r->currency() ) ) ) {
 			wc_get_logger()->error( 'Windcave refund ' . $refund_id . ' mismatch: requested ' . $amount . ' ' . $row['currency'] . ', approved ' . number_format( $r->amount_cents() / 100, 2, '.', '' ) . ' ' . ( $r->currency() ? $r->currency() : '(currency not reported)' ) . '. Check the Windcave portal.', array( 'source' => 'windcave-terminal' ) );
+			// Windcave moved money: keep the refund recorded as pending until someone reconciles it
+			// in the portal; `failed` would tell the cashier to return it another way — twice.
 			return array(
-				'status' => 'failed',
+				'status' => 'pending',
 				'provider_ref' => $r->dps_txn_ref(),
 			);
 		}
-		if ( is_wp_error( $r ) || ! $r->complete() ) {
+		if ( $unfinished( $r ) ) {
 			wc_get_logger()->warning( 'Windcave refund ' . $refund_id . ' is still pending (TxnRef ' . $ref . '). Check the Windcave portal before any further refund.', array( 'source' => 'windcave-terminal' ) );
 		}
 		return array(
-			'status' => is_wp_error( $r ) || ! $r->complete() ? 'pending' : ( $r->approved() ? 'succeeded' : 'failed' ),
-			'provider_ref' => is_wp_error( $r ) || ! $r->complete() ? $ref : $r->dps_txn_ref(),
+			'status' => $unfinished( $r ) ? 'pending' : ( $r->approved() ? 'succeeded' : 'failed' ),
+			'provider_ref' => $unfinished( $r ) ? $ref : $r->dps_txn_ref(),
 		);
 	}
 	/**
