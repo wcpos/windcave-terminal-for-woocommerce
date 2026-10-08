@@ -104,7 +104,9 @@ function init(): void {
 	wcpos_pro_register_server_provider( Settings::GATEWAY_ID, Provider_Adapter::class );
 	add_action( 'init', array( Legacy_Adoption::class, 'upgrade' ), 20 );
 }
-add_action( 'plugins_loaded', __NAMESPACE__ . '\\init', 11 );
+// Pro defines wcpos_pro_requires() and the provider registration API from its own
+// plugins_loaded hook at priority 20; the gate must run after that.
+add_action( 'plugins_loaded', __NAMESPACE__ . '\\init', 30 );
 
 /**
  * Declare compatibility with WooCommerce custom order tables.
