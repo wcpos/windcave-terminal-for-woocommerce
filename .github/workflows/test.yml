@@ -16,12 +16,12 @@ jobs:
         php: ['7.4', '8.3']
     defaults:
       run:
-        working-directory: 95-wc-1.0
+        working-directory: windcave-terminal-for-woocommerce
     steps:
       - name: Checkout extension
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          path: 95-wc-1.0
+          path: windcave-terminal-for-woocommerce
           persist-credentials: false
 
       - name: Read-only Pro token
@@ -75,4 +75,4 @@ jobs:
         run: test -z "$(git ls-files | tr '[:upper:]' '[:lower:]' | sort | uniq -d)"
 
       - name: Conformance and unit tests
-        run: wp-env run --env-cwd='wp-content/plugins/95-wc-1.0' tests-cli -- vendor/bin/phpunit -c phpunit.xml.dist --filter "Tests\\\\"
+        run: wp-env run --env-cwd='wp-content/plugins/windcave-terminal-for-woocommerce' tests-cli -- vendor/bin/phpunit -c phpunit.xml.dist --filter "Tests\\\\"

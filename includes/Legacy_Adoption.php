@@ -51,8 +51,11 @@ class Legacy_Adoption {
 						if ( ( $attempt['txn_ref'] ?? '' ) !== $ref ) {
 							continue;
 						}
-						$c = $attempt + array( 'created_at_gmt' => $attempt['created_at'] );
-						$c['environment'] = $attempt['environment'];
+						$c = $attempt + array(
+							'created_at_gmt' => $attempt['created_at'],
+							'dispatched_at_gmt' => $attempt['created_at'],
+						);
+						$c['environment'] = $attempt['environment'] ?? 'uat';
 						update_option( Provider_Adapter::context_key( $ref ), $c, false );
 						return wcpos_pro_adopt_legacy_attempt( $order, Settings::GATEWAY_ID, $ref, $attempt['amount'], $attempt['currency'] );
 					}
@@ -61,7 +64,7 @@ class Legacy_Adoption {
 			);
 			if ( is_wp_error( $result ) ) {
 				wc_get_logger()->error( 'Windcave adoption failed for order ' . $order->get_id() . ': ' . $result->get_error_code(), array( 'source' => 'windcave-terminal' ) );
-				return;
+				continue;
 			}
 		}
 		update_option( 'wctwc_adoption_offset', $offset + count( $orders ), false );

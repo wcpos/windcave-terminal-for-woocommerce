@@ -73,16 +73,18 @@ class HitClient {
 	 *
 	 * @param string $station Station ID.
 	 * @param string $txn_ref Transaction reference.
+	 * @param float  $timeout Remaining request budget in seconds.
 	 * @return HitResponse|\WP_Error
 	 */
-	public function status( string $station, string $txn_ref ) {
+	public function status( string $station, string $txn_ref, float $timeout = 30 ) {
 		return $this->send(
 			'Status',
 			array(
 				'Station' => $station,
 				'TxnType' => 'Status',
 				'TxnRef' => $txn_ref,
-			)
+			),
+			$timeout
 		);
 	}
 
@@ -97,7 +99,7 @@ class HitClient {
 	 */
 	public function ui( string $station, string $txn_ref, string $button, string $value ) {
 		if ( ! in_array( $button, array( 'B1', 'B2' ), true ) || ! in_array( $value, array( 'YES', 'NO', 'CANCEL' ), true ) ) {
-			return new \WP_Error( 'wctwc_hit_invalid_ui', 'Invalid HIT UI button or value.' );
+			return new \WP_Error( 'wctwc_hit_invalid_ui', 'Invalid HIT UI button or value.', array( 'status' => 400 ) );
 		}
 		return $this->send(
 			'UI',
@@ -167,15 +169,16 @@ class HitClient {
 	 *
 	 * @param string $txn_type Transaction type.
 	 * @param array  $fields   Ordered element values.
+	 * @param float  $timeout Request timeout in seconds.
 	 * @return HitResponse|\WP_Error
 	 */
-	private function send( string $txn_type, array $fields ) {
+	private function send( string $txn_type, array $fields, float $timeout = 30 ) {
 		$xml = $this->build_request( $txn_type, $fields );
 		$this->log( 'HIT request ' . $txn_type, $xml );
 		$response = wp_remote_post(
 			$this->settings->endpoint_url(),
 			array(
-				'timeout' => 30,
+				'timeout' => $timeout,
 				'headers' => array( 'Content-Type' => 'text/xml; charset=utf-8' ),
 				'body' => $xml,
 			)

@@ -69,6 +69,7 @@ final class Windcave_Conformance_Fixture implements Conformance_Fixture {
 	}
 	public function script( string $scenario ): void {
 		$scripts = array(
+			'replay_busy' => array( 'pending' ), 'refund_delayed' => array( 'completed' ), 'refund_delayed_failed' => array( 'completed' ),
 			'create_ok' => array( 'pending' ), 'create_indeterminate' => array( 'pending' ),
 			'pending_then_completed' => array( 'pending', 'completed' ), 'declined' => array( 'failed' ),
 			'cancel_requested_then_cancelled' => array( 'cancel' ), 'cancel_requested_then_completed' => array( 'cancel' ),
@@ -97,6 +98,10 @@ final class Windcave_Conformance_Fixture implements Conformance_Fixture {
 		$this->raw_calls[] = array( 'type' => $type, 'ref' => $ref, 'xml' => $args['body'], 'url' => $url );
 		if ( null !== $this->response_override ) { return is_callable( $this->response_override ) ? ( $this->response_override )( $xml ) : $this->response_override; }
 		if ( 'Purchase' === $type ) {
+			if ( 'replay_busy' === $this->scenario && isset( $this->orders[ $ref ] ) ) {
+				$this->orders[ $ref ]['states'] = array( 'completed' );
+				return self::response( self::fixture( 'reco-pc' ) );
+			}
 			if ( isset( $this->orders[ $ref ] ) ) { throw new \LogicException( 'Duplicate Purchase dispatched for ' . $ref ); }
 			$this->current = $ref;
 			$this->orders[ $ref ] = array( 'mode' => $mode, 'amount' => (string) $xml->Amount, 'currency' => (string) $xml->Cur, 'states' => $this->states );
@@ -105,7 +110,7 @@ final class Windcave_Conformance_Fixture implements Conformance_Fixture {
 				$options['environment'] = 'production';
 				update_option( 'woocommerce_' . $this->gateway_id() . '_settings', $options );
 			}
-			if ( 'create_indeterminate' === $this->scenario && ! $this->lost ) {
+			if ( in_array( $this->scenario, array( 'create_indeterminate', 'replay_busy' ), true ) && ! $this->lost ) {
 				$this->lost = true;
 				return new \WP_Error( 'http_request_failed', 'Response lost after acceptance' );
 			}
@@ -113,10 +118,15 @@ final class Windcave_Conformance_Fixture implements Conformance_Fixture {
 		}
 		if ( 'Refund' === $type ) {
 			if ( '' === (string) $xml->Station || '' === (string) $xml->DpsTxnRef ) { throw new \LogicException( 'Matched Refund requires Station and DpsTxnRef' ); }
-			if ( 'refund_pending' === $this->scenario ) { return new \WP_Error( 'http_request_failed', 'Refund response lost' ); }
+			if ( in_array( $this->scenario, array( 'refund_pending', 'refund_delayed', 'refund_delayed_failed' ), true ) ) {
+				$states = 'refund_pending' === $this->scenario ? array( 'pending' ) : array( 'pending', 'refund_delayed' === $this->scenario ? 'completed' : 'failed' );
+				$this->orders[ $ref ] = array( 'mode' => $mode, 'amount' => (string) $xml->Amount, 'states' => $states );
+				return 'refund_pending' === $this->scenario ? new \WP_Error( 'http_request_failed', 'Refund response lost' ) : self::response( $this->xml( $ref, 'pending' ) );
+			}
 			return self::response( $this->xml( $ref, 'refund_failed' === $this->scenario ? 'failed' : 'completed', (string) $xml->Amount ) );
 		}
 		if ( ! isset( $this->orders[ $ref ] ) ) { return self::response( str_replace( '<TxnRef>128</TxnRef>', '<TxnRef>' . $ref . '</TxnRef>', self::fixture( 'reco-pj' ) ) ); }
+		if ( 'replay_busy' === $this->scenario && array( 'pending' ) === $this->orders[ $ref ]['states'] ) { return self::response( self::fixture( 'reco-pj' ) ); }
 		$order = &$this->orders[ $ref ];
 		if ( $mode !== $order['mode'] ) { throw new \LogicException( 'Action queried in wrong environment' ); }
 		if ( 'UI' === $type ) {
@@ -132,7 +142,7 @@ final class Windcave_Conformance_Fixture implements Conformance_Fixture {
 		if ( 'currency_mismatch' === $this->scenario ) { $xml = str_replace( '</Scr>', '<Cur>USD</Cur></Scr>', $xml ); }
 		$xml = preg_replace( '#<TxnRef>.*?</TxnRef>#', '<TxnRef>' . $ref . '</TxnRef>', $xml );
 		$xml = preg_replace( '#<AmtA>.*?</AmtA>#', '<AmtA>' . (int) round( (float) $amount * 100 ) . '</AmtA>', $xml );
-		if ( 'cancelled' === $state ) { $xml = str_replace( 'DECLINED', 'CANCELLED', $xml ); }
+		if ( 'cancelled' === $state ) { $xml = str_replace( array( 'DECLINED', '<RC>51</RC>' ), array( 'CANCELLED', '<RC></RC>' ), $xml ); }
 		return $xml;
 	}
 	public function webhook_request( string $event ): \WP_REST_Request {

@@ -24,6 +24,158 @@ class Test_Provider_Adapter extends \WP_UnitTestCase {
 		if ( $this->fixture ) { $this->fixture->uninstall(); }
 		parent::tearDown();
 	}
+	private function set_dispatch_age( string $ref, int $age ): void {
+		$key = Provider_Adapter::context_key( $ref );
+		$context = get_option( $key );
+		$context['dispatched_at_gmt'] = gmdate( 'c', time() - $age );
+		update_option( $key, $context );
+	}
+	public function test_replay_busy_preserves_indeterminate_error_data(): void {
+		$this->fixture->script( 'replay_busy' );
+		$this->assertTrue( $this->adapter->create_reader_action( $this->row, 'station-1' )->get_error_data()['indeterminate'] );
+		$error = $this->adapter->create_reader_action( $this->row, 'station-1' );
+		$this->assertWPError( $error );
+		$this->assertSame( array( 'indeterminate' => true, 'status' => 502 ), $error->get_error_data() );
+		$this->assertSame( array( 'Purchase', 'Status', 'Purchase' ), array_column( $this->fixture->raw_calls, 'type' ) );
+	}
+	public function test_replay_non_success_replies_are_indeterminate(): void {
+		$this->fixture->script( 'create_indeterminate' );
+		$this->assertWPError( $this->adapter->create_reader_action( $this->row, 'station-1' ) );
+		foreach ( array( '', '00', 'PJ', 'PO', 'PD', 'PE', 'PF', '51' ) as $code ) {
+			$this->fixture->response_override = static fn( $xml ) => Windcave_Conformance_Fixture::response( 'Status' === (string) $xml->TxnType ? Windcave_Conformance_Fixture::fixture( 'reco-pj' ) : '<Scr><Complete>1</Complete><ReCo>' . $code . '</ReCo><Result><AP>0</AP></Result></Scr>' );
+			$error = $this->adapter->create_reader_action( $this->row, 'station-1' );
+			$this->assertWPError( $error, $code );
+			$this->assertSame( array( 'indeterminate' => true, 'status' => 502 ), $error->get_error_data(), $code );
+		}
+	}
+	public function test_pj_grace_starts_at_dispatch_not_row_creation(): void {
+		$this->row['created_at_gmt'] = gmdate( 'c', time() - 60 );
+		$ref = $this->start();
+		$c = get_option( Provider_Adapter::context_key( $ref ) );
+		$this->assertSame( $this->row['created_at_gmt'], $c['created_at_gmt'] );
+		$this->assertArrayHasKey( 'dispatched_at_gmt', $c );
+		$this->fixture->response_override = Windcave_Conformance_Fixture::response( Windcave_Conformance_Fixture::fixture( 'reco-pj' ) );
+		$this->assertSame( array( 'status' => 'pending' ), $this->adapter->fetch( $ref ) );
+	}
+	/** @dataProvider answer_labels */
+	public function test_enabled_labels_are_displayed_and_mapped_to_protocol_values( string $first, string $second, string $slot, string $value ): void {
+		$ref = $this->start( 'prompt' );
+		$this->fixture->response_override = Windcave_Conformance_Fixture::response( str_replace( array( '>YES<', '>NO<' ), array( '>' . $first . '<', '>' . $second . '<' ), $this->fixture->xml( $ref, 'prompt' ) ) );
+		$prompt = $this->adapter->fetch( $ref )['prompt'];
+		$this->assertSame( array( array( 'id' => 'B1', 'label' => $first ), array( 'id' => 'B2', 'label' => $second ) ), $prompt['buttons'] );
+		$this->assertNotWPError( $this->adapter->answer( $ref, $prompt['id'], $slot ) );
+		$ui = array_values( array_filter( $this->fixture->raw_calls, static fn( $call ) => 'UI' === $call['type'] ) );
+		$this->assertCount( 1, $ui );
+		$xml = simplexml_load_string( $ui[0]['xml'] );
+		$this->assertSame( $slot, (string) $xml->Name );
+		$this->assertSame( $value, (string) $xml->Val );
+	}
+	public function answer_labels(): array {
+		return array(
+			'custom B1' => array( 'Continue', 'Back', 'B1', 'YES' ),
+			'custom B2' => array( 'Continue', 'Back', 'B2', 'NO' ),
+			'explicit NO overrides B1' => array( 'no', 'yes', 'B1', 'NO' ),
+			'explicit YES overrides B2' => array( 'no', 'yes', 'B2', 'YES' ),
+			'cancel B1' => array( 'Cancel', 'Back', 'B1', 'CANCEL' ),
+			'cancel B2' => array( 'Continue', 'Cancel', 'B2', 'CANCEL' ),
+		);
+	}
+	public function test_invalid_ui_client_error_is_plain_400(): void {
+		$ref = $this->start( 'prompt' );
+		// Exercise the client validation via the adapter request boundary, before HTTP.
+		$request = new \ReflectionMethod( Provider_Adapter::class, 'request' );
+		$request->setAccessible( true );
+		$error = $request->invoke( $this->adapter, $ref, 'ui', 'B1', 'CONTINUE' );
+		$this->assertSame( 'wctwc_hit_invalid_ui', $error->get_error_code() );
+		$this->assertSame( array( 'status' => 400 ), $error->get_error_data() );
+		$this->assertNotContains( 'UI', array_column( $this->fixture->raw_calls, 'type' ) );
+	}
+	public function test_decline_with_cancel_text_is_not_cancelled(): void {
+		$ref = $this->start();
+		foreach ( array( array( '51', '', 'failed' ), array( '', '51', 'failed' ), array( 'UNKNOWN', '', 'failed' ), array( '', '', 'cancelled' ) ) as $case ) {
+			$this->fixture->response_override = Windcave_Conformance_Fixture::response( '<Scr><Complete>1</Complete><ReCo>' . $case[0] . '</ReCo><DL1>CARD CANCELLED</DL1><Result><AP>0</AP><RC>' . $case[1] . '</RC></Result></Scr>' );
+			$this->assertSame( $case[2], $this->adapter->fetch( $ref )['status'] );
+		}
+	}
+	public function test_refund_polls_until_second_status_completes(): void {
+		$ref = $this->start();
+		$row = $this->row;
+		$row['provider_refs'] = array( 'action' => $ref, 'transaction_id' => 'original-dps' );
+		foreach ( array( 'refund_delayed' => 'succeeded', 'refund_delayed_failed' => 'failed' ) as $scenario => $status ) {
+			$this->fixture->script( $scenario );
+			$this->fixture->raw_calls = array();
+			$result = $this->adapter->refund( $row, 4567, '5.00' );
+			$this->assertSame( $status, $result['status'] );
+			if ( 'succeeded' === $status ) { $this->assertSame( '0000000100e1a6f9', $result['provider_ref'] ); }
+			$this->assertSame( array( 'Refund', 'Status', 'Status' ), array_column( $this->fixture->raw_calls, 'type' ) );
+			$this->assertSame( array( substr( md5( 'refund-4567' ), 0, 16 ) ), array_values( array_unique( array_column( $this->fixture->raw_calls, 'ref' ) ) ) );
+		}
+	}
+
+	/** @dataProvider approved_refund_money */
+	public function test_approved_refund_verifies_money( string $approved, string $currency, string $expected, bool $delayed ): void {
+		$ref = $this->start();
+		$row = $this->row;
+		$row['provider_refs'] = array( 'action' => $ref, 'transaction_id' => 'original-dps' );
+		$this->fixture->response_override = function ( $xml ) use ( $approved, $currency, $delayed ) {
+			if ( $delayed && 'Refund' === (string) $xml->TxnType ) {
+				return Windcave_Conformance_Fixture::response( '<Scr><Complete>0</Complete></Scr>' );
+			}
+			return Windcave_Conformance_Fixture::response( '<Scr><Complete>1</Complete><Cur>' . $currency . '</Cur><DpsTxnRef>refund-dps</DpsTxnRef><Result><AP>1</AP><AmtA>' . $approved . '</AmtA></Result></Scr>' );
+		};
+		$messages = array();
+		$filter = static function ( $message, $level, $context ) use ( &$messages ) {
+			if ( 'error' === $level && 'windcave-terminal' === ( $context['source'] ?? '' ) ) { $messages[] = $message; }
+			return $message;
+		};
+		add_filter( 'woocommerce_logger_log_message', $filter, 10, 3 );
+		try { $result = $this->adapter->refund( $row, 4569, '5.00' ); }
+		finally { remove_filter( 'woocommerce_logger_log_message', $filter, 10 ); }
+		$this->assertSame( array( 'status' => $expected, 'provider_ref' => 'refund-dps' ), $result );
+		$this->assertSame( $delayed ? array( 'Purchase', 'Refund', 'Status' ) : array( 'Purchase', 'Refund' ), array_column( $this->fixture->raw_calls, 'type' ) );
+		if ( 'failed' === $expected ) {
+			$this->assertNotEmpty( $messages );
+			$this->assertStringContainsString( '4569', $messages[0] );
+			$this->assertStringContainsString( 'requested 5.00 EUR', $messages[0] );
+			$this->assertStringContainsString( 'approved ' . ( '500' === $approved ? '5.00' : '4.00' ) . ' ' . $currency, $messages[0] );
+		} else { $this->assertSame( array(), $messages ); }
+	}
+	public function approved_refund_money(): array {
+		$cases = array();
+		foreach ( array( false, true ) as $delayed ) {
+			$source = $delayed ? 'Status' : 'Refund';
+			$cases[ $source . ' equal' ] = array( '500', 'EUR', 'succeeded', $delayed );
+			$cases[ $source . ' amount mismatch' ] = array( '400', 'EUR', 'failed', $delayed );
+			$cases[ $source . ' currency mismatch' ] = array( '500', 'USD', 'failed', $delayed );
+			$cases[ $source . ' absent currency' ] = array( '500', '', 'succeeded', $delayed );
+		}
+		return $cases;
+	}
+
+	public function test_unfinished_refund_is_bounded_and_logs_portal_check(): void {
+		$ref = $this->start( 'refund_pending' );
+		$row = $this->row;
+		$row['provider_refs'] = array( 'action' => $ref, 'transaction_id' => 'original-dps' );
+		$messages = array();
+		$filter = static function ( $message, $level, $context ) use ( &$messages ) {
+			if ( 'warning' === $level && 'windcave-terminal' === ( $context['source'] ?? '' ) ) { $messages[] = $message; }
+			return $message;
+		};
+		add_filter( 'woocommerce_logger_log_message', $filter, 10, 3 );
+		$before = microtime( true );
+		try { $result = $this->adapter->refund( $row, 4568, '5.00' ); }
+		finally { remove_filter( 'woocommerce_logger_log_message', $filter, 10 ); }
+		$this->assertSame( array( 'status' => 'pending', 'provider_ref' => substr( md5( 'refund-4568' ), 0, 16 ) ), $result );
+		$this->assertNotEmpty( $messages );
+		$this->assertStringContainsString( $result['provider_ref'], $messages[0] );
+		$this->assertStringContainsString( 'Windcave portal', $messages[0] );
+		$this->assertGreaterThanOrEqual( 19, microtime( true ) - $before );
+		$this->assertLessThan( 23, microtime( true ) - $before );
+		$status_calls = array_filter( $this->fixture->raw_calls, static fn( $call ) => 'Status' === $call['type'] );
+		$this->assertGreaterThanOrEqual( 8, count( $status_calls ) );
+		$this->assertLessThanOrEqual( 10, count( $status_calls ) );
+	}
+
 	private function start( string $scenario = 'create_ok' ): string {
 		$this->fixture->script( $scenario );
 		$result = $this->adapter->create_reader_action( $this->row, 'station-1' );
@@ -86,8 +238,9 @@ class Test_Provider_Adapter extends \WP_UnitTestCase {
 	}
 	public function test_pj_grace_and_expiration(): void {
 		foreach ( array( 0 => 'pending', 31 => 'failed' ) as $age => $status ) {
-			$this->row['id'] = wp_generate_uuid4(); $this->row['created_at_gmt'] = gmdate( 'c', time() - $age );
+			$this->row['id'] = wp_generate_uuid4();
 			$this->fixture->response_override = null; $ref = $this->start();
+			$this->set_dispatch_age( $ref, $age );
 			$this->fixture->response_override = Windcave_Conformance_Fixture::response( Windcave_Conformance_Fixture::fixture( 'reco-pj' ) );
 			$result = $this->adapter->fetch( $ref ); $this->assertSame( $status, $result['status'] );
 			if ( $age ) { $this->assertSame( 'not_registered', $result['failure_reason'] ); }
@@ -154,10 +307,10 @@ class Test_Provider_Adapter extends \WP_UnitTestCase {
 	public function test_replay_only_reissues_purchase_for_recent_pj(): void {
 		foreach ( array( 0 => array( 'Purchase', 'Status', 'Purchase' ), 31 => array( 'Purchase', 'Status' ) ) as $age => $types ) {
 			$this->row['id'] = wp_generate_uuid4();
-			$this->row['created_at_gmt'] = gmdate( 'c', time() - $age );
 			$this->fixture->raw_calls = array();
 			$this->fixture->response_override = new \WP_Error( 'http_request_failed', 'Lost before registration' );
 			$this->assertWPError( $this->adapter->create_reader_action( $this->row, 'station-1' ) );
+			$this->set_dispatch_age( substr( md5( $this->row['id'] ), 0, 16 ), $age );
 			$this->fixture->response_override = null;
 			$this->assertNotWPError( $this->adapter->create_reader_action( $this->row, 'station-1' ) );
 			$this->assertSame( $types, array_column( $this->fixture->raw_calls, 'type' ) );

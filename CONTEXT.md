@@ -4,15 +4,15 @@
 - **Station**: Windcave-issued terminal identifier. Merchant-entered IDs are exposed as Pro readers; no station-list API is available.
 - **Pro payment row**: Free's durable ledger leg, minted before dispatch, shared by app and order-pay flows. It owns amount, currency, lifecycle and reservation, not the HIT dispatch-context option.
 - **TxnRef**: HIT action reference. New purchases use the first 16 hexadecimal characters of `md5(payment UUID)`; refunds use `md5('refund-' + refund id)`. Never confuse it with DpsTxnRef.
-- **Dispatch context**: Non-autoloaded per-TxnRef option containing the full payment-id mapping, sent currency, Station, original timestamp and HIT settings. Persisted before Purchase so a restart can recover the same action and environment. Treat stored HIT credentials as secrets.
+- **Dispatch context**: Non-autoloaded per-TxnRef option containing the full payment-id mapping, sent currency, Station, ledger creation timestamp and first-dispatch timestamp (`dispatched_at_gmt`). Persisted before Purchase so a restart can recover the same action. The context pins the environment only; HIT credentials are read live and no key is stored per action.
 - **DpsTxnRef**: Windcave's transaction reference, used as the order transaction id and matched-refund reference. The `Result/TR` fallback remains inferred from Windcave's example, not hardware-verified.
-- **ReCo**: HIT response code, distinct from `Result/RC`. `PC` means a Station is busy with an earlier transaction; `PJ` means no matching TxnRef. PJ is pending for 30 seconds from creation, then `failed/not_registered`. PD/PE/PF and transport errors are indeterminate, not declines.
+- **ReCo**: HIT response code, distinct from `Result/RC`. `PC` means a Station is busy with an earlier transaction; `PJ` means no matching TxnRef. PJ is pending for 30 seconds from first dispatch, then `failed/not_registered`. PD/PE/PF and transport errors are indeterminate, not declines.
 - **Complete**: HIT's final-result flag. Only Complete plus `Result/AP=1` is approval; TxnStatusId alone is never approval.
 - **DL1/DL2**: Terminal display lines carried as Pro's response-only prompt lines.
-- **B1/B2**: Button slots, each with enabled state and its own label. Never assume B1 always means YES or B2 always means NO.
+- **B1/B2**: Button slots, each with enabled state and its own label. Every enabled button is answerable with its real label displayed. Protocol labels YES/NO/CANCEL take precedence; other labels map by slot: B1 → YES, B2 → NO, matching the 0.x panel.
 - **Prompt identity**: SHA-1 of DL1, DL2, enabled `name:label` entries in B1/B2 order and TxnStatusId, separated by newlines. Pro rechecks under the order lock; the adapter rechecks again before UI dispatch.
-- **UI request**: Sends the selected button name and its own uppercased YES/NO/CANCEL label, then queries Status. A stale or disabled button sends no UI request.
-- **Cancellation request**: The terminal's enabled CANCEL button, not a final ledger transition. A Complete result stands and is read on the next fetch.
+- **UI request**: Sends the selected button name and its uppercased protocol label, or the slot-mapped YES/NO for a custom label, then queries Status. A stale or disabled button sends no UI request.
+- **Cancellation request**: The terminal's enabled CANCEL button, not a final ledger transition. A Complete result stands and is read on the next fetch. No explicit HIT cancel codes are known from 0.x; non-approved Complete is cancelled only with cancel text in DL1 and no adverse ReCo or Result/RC. Unknown or decline codes remain failed.
 - **Observation**: Adapter vocabulary: pending, in_progress, completed, cancelled, failed. Pro maps it onto ledger states.
 - **Webhook patch**: Ledger vocabulary: pending, captured (authorized only if explicitly authorized), failed or voided. One private HIT observation method serves polling and FPRN translation.
 - **Charged currency**: `CurrencyInput`, `Cur` or `CurrencyName` in the HIT reply takes precedence; sent currency is a fallback only when none is reported.

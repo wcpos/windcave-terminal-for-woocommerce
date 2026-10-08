@@ -119,7 +119,8 @@ class Gateway extends \WC_Payment_Gateway {
 	 */
 	public function is_available() {
 		$s = new Settings();
-		return parent::is_available() && '' !== $s->hit_user() && '' !== $s->hit_key() && (bool) $s->station_ids();
+		$pos_context = ( function_exists( 'woocommerce_pos_request' ) && woocommerce_pos_request() ) || is_checkout_pay_page();
+		return '' !== $s->hit_user() && '' !== $s->hit_key() && (bool) $s->station_ids() && ( parent::is_available() || ( $s->enabled_for_pos() && $pos_context ) );
 	}
 	/**
 	 * Render the shared Pro panel on order-pay pages.

@@ -13,6 +13,8 @@ use WCPOS\WooCommercePOS\WindcaveTerminal\Services\HitClient;
 
 /** Translate HIT exchanges into the shared provider contract. */
 class Provider_Adapter extends Abstract_Provider_Adapter {
+	/** Bound synchronous refund reconciliation to 20 seconds before asking for a portal check. */
+	private const REFUND_POLL_SECONDS = 20;
 	/**
 	 * Return the HIT provider family.
 	 */
@@ -69,7 +71,8 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 		$context = get_option( $key );
 		$replay = false !== $context;
 		if ( ! $replay ) {
-			$context = $row + array( 'created_at_gmt' => gmdate( 'c' ) );
+			$context = $row;
+			$context['dispatched_at_gmt'] = gmdate( 'c' );
 			$context['station'] = $reader_id;
 			// Pin only the ENVIRONMENT per action (an attempt started on UAT is always queried on UAT).
 			// Credentials are read live at call time; a copy of the HIT key never lands in an option.
@@ -84,7 +87,7 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 			if ( is_wp_error( $r ) ) {
 				return $r;
 			}
-			if ( 'PJ' !== $r->reco() || time() - strtotime( $context['created_at_gmt'] ) >= 30 ) {
+			if ( 'PJ' !== $r->reco() || time() - strtotime( $context['dispatched_at_gmt'] ) >= 30 ) {
 				return array(
 					'ref' => $ref,
 					'expires_at' => null,
@@ -100,6 +103,10 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 			rest_url( 'wcpos/v2/payments/webhook' )
 		) : '';
 		$r = $client->purchase( $context['station'], $ref, $context['amount'], $context['currency'], 'Order #' . $order->get_order_number(), $url );
+		// A replay refusal may concern our first Purchase, which can still collect money.
+		if ( $replay && ( is_wp_error( $r ) || ! in_array( $r->reco(), array( '', '00' ), true ) || ( $r->complete() && ! $r->approved() ) ) ) {
+			return $this->indeterminate( 'wctwc_hit_indeterminate', __( 'Could not confirm the terminal result. Check Windcave before taking payment again.', 'windcave-terminal-for-woocommerce' ) );
+		}
 		if ( ! is_wp_error( $r ) && 'PC' === $r->reco() ) {
 			return new \WP_Error( 'wcpos_reader_busy', __( 'The terminal is still finishing an earlier transaction. Complete or cancel it on the terminal, then try again.', 'windcave-terminal-for-woocommerce' ), array( 'status' => 409 ) );
 		}
@@ -115,6 +122,9 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 	 * @param \WCPOS\WooCommercePOS\WindcaveTerminal\Services\HitResponse|\WP_Error $r HIT reply.
 	 */
 	private function checked( $r ) {
+		if ( is_wp_error( $r ) && 'wctwc_hit_invalid_ui' === $r->get_error_code() ) {
+			return $r;
+		}
 		return is_wp_error( $r ) || in_array( $r->reco(), array( 'PD', 'PE', 'PF' ), true ) ? $this->indeterminate( 'wctwc_hit_indeterminate', __( 'Could not confirm the terminal result. Check Windcave before taking payment again.', 'windcave-terminal-for-woocommerce' ) ) : $r;
 	}
 	/**
@@ -152,7 +162,7 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 		$c = get_option( self::context_key( $ref ) );
 		$reco = $r->reco();
 		if ( 'PJ' === $reco ) {
-			return time() - strtotime( $c['created_at_gmt'] ) < 30 ? array( 'status' => 'pending' ) : array(
+			return time() - strtotime( $c['dispatched_at_gmt'] ) < 30 ? array( 'status' => 'pending' ) : array(
 				'status' => 'failed',
 				'failure_reason' => 'not_registered',
 			);
@@ -162,8 +172,10 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 		}
 		if ( $r->complete() ) {
 			if ( ! $r->approved() ) {
+				// No known HIT cancel codes: a declined card whose DL1 says CARD CANCELLED is still a decline.
+				$cancelled = false !== stripos( $r->display_line_1(), 'cancel' ) && in_array( $reco, array( '', '00' ), true ) && in_array( $r->response_code(), array( '', '00' ), true );
 				return array(
-					'status' => false !== stripos( $reco . ':' . $r->display_line_1(), 'cancel' ) ? 'cancelled' : 'failed',
+					'status' => $cancelled ? 'cancelled' : 'failed',
 					'failure_reason' => $reco . ':' . $r->display_line_1(),
 				);
 			}
@@ -193,11 +205,11 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 		foreach ( array( 'B1', 'B2' ) as $id ) {
 			$button = $r->button( $id );
 			if ( $button['enabled'] ) {
+				$names[] = $id . ':' . $button['label'];
 				$buttons[] = array(
 					'id' => $id,
 					'label' => $button['label'],
 				);
-				$names[] = $id . ':' . $button['label'];
 			}
 		}
 		$lines = array_values( array_filter( array( $r->display_line_1(), $r->display_line_2() ), static fn( $line ) => '' !== $line ) );
@@ -225,7 +237,10 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 		}
 		foreach ( $observation['prompt']['buttons'] ?? array() as $button ) {
 			if ( $prompt_id === $observation['prompt']['id'] && $button_id === $button['id'] ) {
-				$r = $this->request( $ref, 'ui', $button_id, strtoupper( $button['label'] ) );
+				$value = strtoupper( $button['label'] );
+				// Preserve protocol labels; custom labels use the 0.x panel's slot mapping.
+				$value = in_array( $value, array( 'YES', 'NO', 'CANCEL' ), true ) ? $value : ( 'B1' === $button_id ? 'YES' : 'NO' );
+				$r = $this->request( $ref, 'ui', $button_id, $value );
 				return is_wp_error( $r ) ? $r : $this->fetch( $ref );
 			}
 		}
@@ -278,7 +293,28 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 			return new \WP_Error( 'wcpos_reader_required', __( 'Configure a default Station in POS settings before refunding this sale.', 'windcave-terminal-for-woocommerce' ), array( 'status' => 400 ) );
 		}
 		$ref = substr( md5( 'refund-' . $refund_id ), 0, 16 );
-		$r = $this->checked( ( new HitClient( $s ) )->refund( $station, $ref, $amount, $row['currency'], $row['provider_refs']['transaction_id'] ?? '', 'Refund #' . $refund_id ) );
+		$client = new HitClient( $s );
+		$r = $this->checked( $client->refund( $station, $ref, $amount, $row['currency'], $row['provider_refs']['transaction_id'], 'Refund #' . $refund_id ) );
+		// HIT Refund is a terminal transaction like Purchase; this polling behavior is unverified live.
+		$deadline = microtime( true ) + self::REFUND_POLL_SECONDS;
+		while ( ( is_wp_error( $r ) || ! $r->complete() ) && microtime( true ) < $deadline ) {
+			usleep( (int) ( min( 2, max( 0, $deadline - microtime( true ) ) ) * 1000000 ) );
+			$remaining = $deadline - microtime( true );
+			if ( $remaining <= 0 ) {
+				break;
+			}
+			$r = $this->checked( $client->status( $station, $ref, $remaining ) );
+		}
+		if ( ! is_wp_error( $r ) && $r->approved() && ( $r->amount_cents() !== (int) round( (float) $amount * 100 ) || ( '' !== $r->currency() && $row['currency'] !== $r->currency() ) ) ) {
+			wc_get_logger()->error( 'Windcave refund ' . $refund_id . ' mismatch: requested ' . $amount . ' ' . $row['currency'] . ', approved ' . number_format( $r->amount_cents() / 100, 2, '.', '' ) . ' ' . ( $r->currency() ? $r->currency() : '(currency not reported)' ) . '. Check the Windcave portal.', array( 'source' => 'windcave-terminal' ) );
+			return array(
+				'status' => 'failed',
+				'provider_ref' => $r->dps_txn_ref(),
+			);
+		}
+		if ( is_wp_error( $r ) || ! $r->complete() ) {
+			wc_get_logger()->warning( 'Windcave refund ' . $refund_id . ' is still pending (TxnRef ' . $ref . '). Check the Windcave portal before any further refund.', array( 'source' => 'windcave-terminal' ) );
+		}
 		return array(
 			'status' => is_wp_error( $r ) || ! $r->complete() ? 'pending' : ( $r->approved() ? 'succeeded' : 'failed' ),
 			'provider_ref' => is_wp_error( $r ) || ! $r->complete() ? $ref : $r->dps_txn_ref(),
@@ -312,6 +348,7 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 		)[ $patch['status'] ];
 		$patch = array_intersect_key( $patch, array_flip( array( 'status', 'amount', 'currency', 'provider_refs', 'receipt' ) ) );
 		$patch['event_id'] = $event_id;
+		// Records receipt of a verified hint, not settlement; Free/Pro exposes no post-settlement hook.
 		update_option( 'wctwc_last_fprn', gmdate( 'c' ), false );
 		return array(
 			'payment_id' => $id,
