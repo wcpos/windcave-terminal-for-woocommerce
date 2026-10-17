@@ -25,6 +25,10 @@ class Gateway extends \WC_Payment_Gateway {
 		$this->supports           = array( 'products' );
 		$this->init_form_fields();
 		$this->init_settings();
+		// WooCommerce before 10.7 does not copy the saved `enabled` setting onto the gateway in
+		// init_settings(), and the inherited default is 'yes': without this line a gateway whose
+		// checkbox defaults to 'no' still appears at checkout.
+		$this->enabled     = $this->get_option( 'enabled', 'no' );
 		$this->title       = $this->get_option( 'title' );
 		$this->description = $this->get_option( 'description' );
 		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
