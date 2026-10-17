@@ -23,6 +23,8 @@ if ( ! class_exists( 'WC_Payment_Gateway' ) ) {
 		public $supports;
 		public $form_fields = array();
 		public $settings = array();
+		/** WooCommerce's inherited default; versions before 10.7 never synchronise it from settings. */
+		public $enabled = 'yes';
 
 		/**
 		 * Load saved settings and fill missing values from field defaults.

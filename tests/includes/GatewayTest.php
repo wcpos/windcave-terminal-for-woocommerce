@@ -70,6 +70,17 @@ class GatewayTest extends TestCase {
 	}
 
 	/**
+	 * The saved enabled checkbox decides whether the gateway is offered; WooCommerce before
+	 * 10.7 leaves the inherited 'yes' in place unless the gateway copies the option itself.
+	 */
+	public function test_enabled_follows_the_saved_setting_not_the_inherited_default(): void {
+		// No saved settings: the checkbox default is 'no', so the gateway must not be enabled.
+		$this->assertSame( 'no', ( new Gateway() )->enabled );
+		Functions\when( 'get_option' )->justReturn( array( 'enabled' => 'yes' ) );
+		$this->assertSame( 'yes', ( new Gateway() )->enabled );
+	}
+
+	/**
 	 * The settings keys and order are stable.
 	 */
 	public function test_form_field_keys_in_order(): void {
