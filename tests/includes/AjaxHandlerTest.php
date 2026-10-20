@@ -197,7 +197,7 @@ class AjaxHandlerTest extends TestCase {
 		$order = Mockery::mock( FakeOrder::class, array( 42 ) )->makePartial();
 		$order->shouldReceive( 'get_order_key' )->once()->andReturn( 'wc_order_42' );
 		Functions\expect( 'wc_get_order' )->once()->andReturn( $order );
-		Functions\when( 'woocommerce_pos_request' )->justReturn( true );
+		Functions\when( 'wcpos_request' )->justReturn( true );
 		Functions\expect( 'get_home_url' )->once()->with( null, '/wcpos-checkout/order-received/42' )->andReturn( 'https://shop.test/wcpos-checkout/order-received/42' );
 		Functions\when( 'add_query_arg' )->alias( function ( $args, $url ) {
 			return $url . '?' . http_build_query( $args );

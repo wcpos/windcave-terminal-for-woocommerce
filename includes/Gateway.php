@@ -208,7 +208,7 @@ class Gateway extends \WC_Payment_Gateway {
 			$resume  = $current && PaymentAttempt::is_pending( (string) ( $current['status'] ?? '' ) );
 		}
 
-		$is_pos = function_exists( 'woocommerce_pos_request' ) && woocommerce_pos_request();
+		$is_pos = function_exists( 'wcpos_request' ) && wcpos_request();
 		$locked = $settings->lock_station();
 		echo '<div id="wctwc-payment-interface" class="wctwc-payment-interface" data-order-id="' . esc_attr( $order_id ) . '" data-order-token="' . esc_attr( $order_token ) . '" data-default-station="' . esc_attr( $settings->default_station() ) . '" data-lock-station="' . esc_attr( $locked ? '1' : '0' ) . '" data-resume="' . esc_attr( $resume ? '1' : '0' ) . '" data-pos="' . esc_attr( $is_pos ? '1' : '0' ) . '" data-gateway-id="' . esc_attr( Settings::GATEWAY_ID ) . '">';
 		echo '<div class="wctwc-payment-card">';

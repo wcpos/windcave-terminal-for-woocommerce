@@ -117,7 +117,7 @@ class AjaxHandler {
 	 * @param \WC_Order $order Paid order.
 	 */
 	public static function order_return_url( $order ): string {
-		if ( function_exists( 'woocommerce_pos_request' ) && woocommerce_pos_request() ) {
+		if ( function_exists( 'wcpos_request' ) && wcpos_request() ) {
 			return add_query_arg(
 				array( 'key' => $order->get_order_key() ),
 				get_home_url( null, '/wcpos-checkout/order-received/' . $order->get_id() )
