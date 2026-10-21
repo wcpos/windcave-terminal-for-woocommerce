@@ -40,7 +40,7 @@ class GatewayTest extends TestCase {
 		FakeOrder::$completion_calls = array();
 		$this->order = new FakeOrder( 42 );
 		Functions\when( 'is_checkout_pay_page' )->justReturn( true );
-		Functions\when( 'woocommerce_pos_request' )->justReturn( false );
+		Functions\when( 'wcpos_request' )->justReturn( false );
 		Functions\when( 'wc_get_order' )->justReturn( $this->order );
 		Functions\when( 'absint' )->alias( function ( $value ) { return abs( (int) $value ); } );
 		Functions\when( 'wp_salt' )->justReturn( 'test-auth-salt' );
@@ -173,7 +173,7 @@ class GatewayTest extends TestCase {
 			'default_station' => '<b>S2</b>',
 			'show_logs' => 'yes',
 		) );
-		Functions\when( 'woocommerce_pos_request' )->justReturn( true );
+		Functions\when( 'wcpos_request' )->justReturn( true );
 		$html = $this->render_payment_fields();
 		$this->assertStringContainsString( '<option value="S1">S1</option>', $html );
 		$this->assertStringContainsString( '<option value="&lt;b&gt;S2&lt;/b&gt;" selected>&lt;b&gt;S2&lt;/b&gt;</option>', $html );
