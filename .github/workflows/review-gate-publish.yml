@@ -1,0 +1,26 @@
+name: Review gate publisher
+on:
+  workflow_run:
+    workflows: ["Review gate"]
+    types: [completed]
+permissions:
+  actions: read
+  statuses: write
+  pull-requests: write
+  contents: read
+jobs:
+  resolve:
+    if: github.event.workflow_run.event != 'workflow_run'
+    uses: wcpos/.github/.github/workflows/review-gate.yml@5d513136f2bed31920f5a4a3c982043d36a412fb # wcpos/.github main, 2026-10-22 (#23: a GET that answers 5xx is retried; an empty body fails with its status)
+    with:
+      resolve_only: true
+      publish: false
+      sha: ${{ github.event.workflow_run.head_sha }}
+      head_owner: ${{ github.event.workflow_run.head_repository.owner.login }}
+      head_branch: ${{ github.event.workflow_run.head_branch }}
+  publish:
+    needs: resolve
+    if: needs.resolve.outputs.sha != ''
+    uses: wcpos/.github/.github/workflows/review-gate.yml@5d513136f2bed31920f5a4a3c982043d36a412fb # wcpos/.github main, 2026-10-22 (#23: a GET that answers 5xx is retried; an empty body fails with its status)
+    with:
+      sha: ${{ needs.resolve.outputs.sha }}

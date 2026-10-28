@@ -57,11 +57,10 @@ class Settings {
 	 * Whether the gateway is enabled in WooCommerce POS settings.
 	 */
 	public function enabled_for_pos(): bool {
-		$getter = function_exists( 'wcpos_get_settings' ) ? 'wcpos_get_settings' : 'woocommerce_pos_get_settings';
-		if ( ! function_exists( $getter ) ) {
+		if ( ! function_exists( 'wcpos_get_settings' ) ) {
 			return false;
 		}
-		$settings = $getter( 'payment_gateways' );
+		$settings = wcpos_get_settings( 'payment_gateways' );
 		return is_array( $settings ) && ! empty( $settings['gateways'][ self::GATEWAY_ID ]['enabled'] );
 	}
 

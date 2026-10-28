@@ -23,6 +23,13 @@ All notable changes to Windcave Terminal for WooCommerce will be documented in t
 - Hardware, UAT and certification remain unverified. Release remains manual.
 - Conformance records adapter entries and Status recovery; reply currency is verified when present, and outcome-aware FPRN IDs distinguish conflicting finals from identical replays.
 
+## 0.1.1 - 2026-10-28
+
+### Fixed
+
+- **The gateway no longer appears at checkout when it is switched off, on WooCommerce versions before 10.7.** WooCommerce did not copy the saved "enabled" setting onto the gateway, whose default is on. (#15)
+- Calls the maintained `wcpos_request()` / `wcpos_get_settings()` functions instead of the deprecated aliases. (#20)
+
 ## 0.1.0 - 2026-10-05
 
 ### Added

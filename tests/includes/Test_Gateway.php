@@ -22,7 +22,7 @@ class Test_Gateway extends \WP_UnitTestCase {
 			$settings['gateways'][ Settings::GATEWAY_ID ]['enabled'] = $pos;
 			return $settings;
 		};
-		add_filter( 'woocommerce_pos_payment_gateways_settings', $settings, 99 );
+		add_filter( 'wcpos_payment_gateways_settings', $settings, 99 );
 		add_filter( 'woocommerce_is_checkout', '__return_true' );
 		$options = array( 'enabled' => $web, 'hit_user' => 'user', 'hit_key' => 'secret', 'stations' => 'station-1' );
 		if ( $missing ) { $options[ $missing ] = ''; }
@@ -30,12 +30,12 @@ class Test_Gateway extends \WP_UnitTestCase {
 		wp_set_current_user( '' === $role ? 0 : self::factory()->user->create( array( 'role' => $role ) ) );
 		try {
 			$this->assertSame( $pos, ( new Settings() )->enabled_for_pos() );
-			$this->assertSame( 'pos' === $context, woocommerce_pos_request() );
+			$this->assertSame( 'pos' === $context, wcpos_request() );
 			$this->assertSame( 'order-pay' === $context, is_checkout_pay_page() );
 			$this->assertSame( $expected, ( new Gateway() )->is_available() );
 		} finally {
 			$wp->query_vars = $old_query;
-			remove_filter( 'woocommerce_pos_payment_gateways_settings', $settings, 99 );
+			remove_filter( 'wcpos_payment_gateways_settings', $settings, 99 );
 			remove_filter( 'woocommerce_is_checkout', '__return_true' );
 		}
 	}
@@ -55,6 +55,17 @@ class Test_Gateway extends \WP_UnitTestCase {
 			}
 		}
 		return $cases;
+	}
+	/**
+	 * The saved enabled checkbox decides whether the gateway is offered; WooCommerce before
+	 * 10.7 leaves the inherited 'yes' in place unless the gateway copies the option itself.
+	 */
+	public function test_enabled_follows_the_saved_setting_not_the_inherited_default(): void {
+		$key = 'woocommerce_' . Settings::GATEWAY_ID . '_settings';
+		delete_option( $key );
+		$this->assertSame( 'no', ( new Gateway() )->enabled );
+		update_option( $key, array( 'enabled' => 'yes' ) );
+		$this->assertSame( 'yes', ( new Gateway() )->enabled );
 	}
 	public function test_secret_is_never_rendered_and_blank_preserves_it(): void {
 		update_option( 'woocommerce_' . Settings::GATEWAY_ID . '_settings', array( 'hit_key' => 'fixture-private-value' ) );
