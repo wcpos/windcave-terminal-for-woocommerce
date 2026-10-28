@@ -22,7 +22,7 @@ class Test_Gateway extends \WP_UnitTestCase {
 			$settings['gateways'][ Settings::GATEWAY_ID ]['enabled'] = $pos;
 			return $settings;
 		};
-		add_filter( 'woocommerce_pos_payment_gateways_settings', $settings, 99 );
+		add_filter( 'wcpos_payment_gateways_settings', $settings, 99 );
 		add_filter( 'woocommerce_is_checkout', '__return_true' );
 		$options = array( 'enabled' => $web, 'hit_user' => 'user', 'hit_key' => 'secret', 'stations' => 'station-1' );
 		if ( $missing ) { $options[ $missing ] = ''; }
@@ -35,7 +35,7 @@ class Test_Gateway extends \WP_UnitTestCase {
 			$this->assertSame( $expected, ( new Gateway() )->is_available() );
 		} finally {
 			$wp->query_vars = $old_query;
-			remove_filter( 'woocommerce_pos_payment_gateways_settings', $settings, 99 );
+			remove_filter( 'wcpos_payment_gateways_settings', $settings, 99 );
 			remove_filter( 'woocommerce_is_checkout', '__return_true' );
 		}
 	}

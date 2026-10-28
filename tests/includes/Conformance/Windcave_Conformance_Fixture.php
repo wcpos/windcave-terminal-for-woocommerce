@@ -44,12 +44,12 @@ final class Windcave_Conformance_Fixture implements Conformance_Fixture {
 		Reader_Curation::forget( $this->gateway_id() );
 		delete_option( 'wcpos_pro_readers_lkg_' . $this->gateway_id() );
 		add_filter( 'pre_http_request', array( $this, 'http' ), 10, 3 );
-		add_filter( 'woocommerce_pos_payment_gateways_settings', array( $this, 'refund_default' ), 20 );
+		add_filter( 'wcpos_payment_gateways_settings', array( $this, 'refund_default' ), 20 );
 	}
 	public function uninstall(): void {
 		remove_filter( 'woocommerce_payment_gateways', array( $this, 'register_gateway' ) );
 		remove_filter( 'pre_http_request', array( $this, 'http' ), 10 );
-		remove_filter( 'woocommerce_pos_payment_gateways_settings', array( $this, 'refund_default' ), 20 );
+		remove_filter( 'wcpos_payment_gateways_settings', array( $this, 'refund_default' ), 20 );
 		Reader_Curation::forget( $this->gateway_id() );
 		delete_option( 'wcpos_pro_readers_lkg_' . $this->gateway_id() );
 		$this->registry_property->setValue( null, $this->old_registry );
