@@ -6,7 +6,7 @@ All notable changes to Windcave Terminal for WooCommerce will be documented in t
 
 First beta of 1.0.0, for the WCPOS 2.0 beta. The extension now runs on WCPOS Pro 2.0's shared payments base and requires WCPOS Pro 2.0.0 or later. The changes are listed under 1.0.0 below.
 
-## 1.0.0 — Unreleased
+## 1.0.0
 
 ### Breaking changes
 
@@ -20,7 +20,7 @@ First beta of 1.0.0, for the WCPOS 2.0 beta. The extension now runs on WCPOS Pro
 - HIT provider adapter with deterministic TxnRefs, Status-before-replay, action-specific settings, stale prompt protection, enabled-button cancellation, masked receipts and matched full/partial refunds.
 - Pending 0.x current-attempt adoption; old metadata retained and old cron cleared.
 - Real WordPress adapter/gateway/adoption tests, HTTP-backed shared conformance fixture and pinned transcripts including the first HIT prompt exchange.
-- CI against a sibling Pro `next` checkout using the wcpos-mini GitHub App token.
+- CI against a sibling Pro `main` checkout using the wcpos-mini GitHub App token.
 
 ### Verification status
 

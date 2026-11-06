@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Windcave Terminal for WooCommerce
  * Description: Take in-person card payments on a Windcave terminal (HIT) from WooCommerce POS.
- * Version:     1.0.0-beta1
+ * Version:     1.0.0
  * Author:      kilbot
  * Author URI:  https://kilbot.com/
  * Update URI:  https://github.com/wcpos/windcave-terminal-for-woocommerce
@@ -21,7 +21,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WCTWC_VERSION', '1.0.0-beta1' );
+define( 'WCTWC_VERSION', '1.0.0' );
 define( 'WCTWC_PLUGIN_FILE', __FILE__ );
 define( 'WCTWC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WCTWC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
