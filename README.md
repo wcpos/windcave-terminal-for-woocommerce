@@ -48,7 +48,7 @@ The upgrade routine adopts pending 0.x current attempts into Pro's ledger withou
 
 ## Development
 
-Use an installed sibling `../woocommerce-pos-pro` at `next` and this worktree's running wp-env. Always filter PHPUnit:
+Use an installed sibling `../woocommerce-pos-pro` at `main` and this worktree's running wp-env. Always filter PHPUnit:
 
 ```sh
 npx wp-env run --env-cwd="wp-content/plugins/$(basename "$PWD")" tests-cli -- vendor/bin/phpunit -c phpunit.xml.dist --filter 'Tests\\Conformance\\'
