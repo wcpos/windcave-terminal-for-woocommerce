@@ -2,6 +2,32 @@
 
 All notable changes to Windcave Terminal for WooCommerce will be documented in this file.
 
+## 1.0.0-beta1 - 2026-11-02
+
+First beta of 1.0.0, for the WCPOS 2.0 beta. The extension now runs on WCPOS Pro 2.0's shared payments base and requires WCPOS Pro 2.0.0 or later. The changes are listed under 1.0.0 below.
+
+## 1.0.0
+
+### Breaking changes
+
+- Requires WooCommerce POS Pro 2.0 for app and legacy order-pay payments. The 0.x line remains on `main`.
+- Pro/Free now own the ledger, payment panel, prompts, locks, reconciliation, refunds and support bundle. Removed the extension AJAX/token/lock/sweeper, set-aside flow, order-pay assets and private logger/bundle.
+- Reader allowlist/default/lock settings move to Pro. Removed `default_station`, `lock_station`, `show_logs` and `log_level` settings.
+- FPRN now targets Pro's GET webhook route. Unknown references are refused before HIT traffic; unsigned notifications only trigger authoritative Status.
+
+### Added
+
+- HIT provider adapter with deterministic TxnRefs, Status-before-replay, action-specific settings, stale prompt protection, enabled-button cancellation, masked receipts and matched full/partial refunds.
+- Pending 0.x current-attempt adoption; old metadata retained and old cron cleared.
+- 0.x set-aside TxnRefs: adopted on orders still in progress; on any other order status, an order note tells staff to check the portal (never adopted, so a late approval cannot hide a double charge).
+- Real WordPress adapter/gateway/adoption tests, HTTP-backed shared conformance fixture and pinned transcripts including the first HIT prompt exchange.
+- CI against a sibling Pro `main` checkout using the wcpos-mini GitHub App token.
+
+### Verification status
+
+- Hardware, UAT and certification remain unverified. Release remains manual.
+- Conformance records adapter entries and Status recovery; reply currency is verified when present, and outcome-aware FPRN IDs distinguish conflicting finals from identical replays.
+
 ## 0.1.1 - 2026-10-28
 
 ### Fixed
