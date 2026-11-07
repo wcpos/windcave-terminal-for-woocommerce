@@ -2,7 +2,7 @@
 
 Windcave HIT payments on WooCommerce POS Pro's shared payments base. **Requires WooCommerce POS Pro 2.0 or newer**, WooCommerce and PHP 7.4+ with DOM/libxml. The WordPress dependency header names WooCommerce only; without compatible Pro the gateway is not registered and an administrator notice explains why.
 
-## Pre-release — not certified
+## Not yet certified by Windcave
 
 Mocks are not Windcave certification. No Windcave account or physical terminal has been tested. Production release remains manual and requires Windcave QA approval. UAT station availability without hardware, actual prompt timing, receipts, FPRN delivery and the parser's `Result/TR` fallback for DpsTxnRef remain unverified.
 
