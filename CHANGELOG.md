@@ -19,6 +19,7 @@ First beta of 1.0.0, for the WCPOS 2.0 beta. The extension now runs on WCPOS Pro
 
 - HIT provider adapter with deterministic TxnRefs, Status-before-replay, action-specific settings, stale prompt protection, enabled-button cancellation, masked receipts and matched full/partial refunds.
 - Pending 0.x current-attempt adoption; old metadata retained and old cron cleared.
+- An order locked by a till during the upgrade is retried on the next page load instead of skipped, so its pending attempt is still adopted.
 - 0.x set-aside TxnRefs: adopted on orders still in progress; on any other order status, an order note tells staff to check the portal (never adopted, so a late approval cannot hide a double charge).
 - Real WordPress adapter/gateway/adoption tests, HTTP-backed shared conformance fixture and pinned transcripts including the first HIT prompt exchange.
 - CI against a sibling Pro `next` checkout using the wcpos-mini GitHub App token.
