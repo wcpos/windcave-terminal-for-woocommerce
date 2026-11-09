@@ -169,6 +169,33 @@ class Test_Legacy_Adoption extends \WP_UnitTestCase {
 		$this->assertSame( '1.0.0', get_option( 'wctwc_version' ) );
 	}
 
+	public function test_busy_lock_repeats_the_current_attempt_page(): void {
+		$this->reset_upgrade();
+		$adopted = $this->set_aside_order( 'pending', array(), array( 'current-done' ), 'current-done' );
+		Legacy_Adoption::upgrade();
+		$this->assertCount( 1, $this->rows( $adopted ) );
+		$this->reset_upgrade();
+		$order = $this->set_aside_order( 'pending', array(), array( 'current-busy' ), 'current-busy' );
+		$other = ( new \ReflectionClass( Order_Lock::class ) )->newInstanceWithoutConstructor();
+		$this->assertTrue( $other->acquire( $order->get_id() ) );
+		try {
+			$messages = $this->upgrade_logging();
+		} finally {
+			$other->release( $order->get_id() );
+		}
+		$this->assertSame( array( 'Windcave adoption failed for order ' . $order->get_id() . ': wcpos_payment_locked' ), $messages );
+		$this->assertSame( array(), $this->rows( $order ) );
+		$this->assertFalse( get_option( 'wctwc_version' ) );
+		$this->assertFalse( get_option( 'wctwc_adoption_offset' ) );
+		$this->assertFalse( get_option( 'wctwc_adoption_abandoned_offset' ) );
+		for ( $i = 0; $i < 3 && false === get_option( 'wctwc_version' ); $i++ ) {
+			Legacy_Adoption::upgrade();
+		}
+		$this->assertSame( array( 'current-busy' ), array_column( array_column( $this->rows( $order ), 'provider_refs' ), 'action' ) );
+		$this->assertCount( 1, $this->rows( $adopted ) );
+		$this->assertSame( '1.0.0', get_option( 'wctwc_version' ) );
+	}
+
 	public function test_install_without_set_aside_refs_stamps_in_one_call(): void {
 		$this->reset_upgrade();
 		$this->set_aside_order( 'pending', array(), array( 'only-current' ), 'only-current' );

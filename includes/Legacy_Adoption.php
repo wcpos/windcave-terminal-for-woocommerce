@@ -26,7 +26,7 @@ class Legacy_Adoption {
 	public const META_RECEIPT = '_wctwc_receipt';
 	public const META_RECEIPT_WIDTH = '_wctwc_receipt_width';
 	/**
-	 * Adopt a bounded page of pending attempts under Pro’s order lock.
+	 * Adopt a bounded page of pending attempts under Pro’s order lock; a busy order lock repeats the page.
 	 */
 	public static function upgrade(): void {
 		wp_clear_scheduled_hook( 'wctwc_sweep_stale_payments' );
@@ -63,6 +63,10 @@ class Legacy_Adoption {
 			);
 			if ( is_wp_error( $result ) ) {
 				wc_get_logger()->error( 'Windcave adoption failed for order ' . $order->get_id() . ': ' . $result->get_error_code(), array( 'source' => 'windcave-terminal' ) );
+				// A busy lock clears, so repeat this page on the next init; missing context never will.
+				if ( 'wcpos_payment_locked' === $result->get_error_code() ) {
+					return;
+				}
 				continue;
 			}
 		}
