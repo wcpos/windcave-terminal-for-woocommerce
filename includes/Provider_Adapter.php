@@ -288,7 +288,7 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 		}
 		$c = get_option( self::context_key( $row['provider_refs']['action'] ?? '' ), array() );
 		$s = $c ? self::settings_for( $c ) : new Settings();
-		$station = $row['provider_refs']['reader'] ?? $c['station'] ?? Reader_Curation::settings( Settings::GATEWAY_ID )['default_reader'];
+		$station = $row['provider_refs']['reader'] ?? $c['station'] ?? self::legacy_station( $row ) ?? Reader_Curation::settings( Settings::GATEWAY_ID )['default_reader'];
 		if ( '' === $station ) {
 			return new \WP_Error( 'wcpos_reader_required', __( 'Configure a default Station in POS settings before refunding this sale.', 'windcave-terminal-for-woocommerce' ), array( 'status' => 400 ) );
 		}
@@ -324,6 +324,41 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 			'status' => $unfinished( $r ) ? 'pending' : ( $r->approved() ? 'succeeded' : 'failed' ),
 			'provider_ref' => $unfinished( $r ) ? $ref : $r->dps_txn_ref(),
 		);
+	}
+	/**
+	 * The Station of the 0.x attempt whose reference became the order's transaction id.
+	 *
+	 * Only a Station that is still configured counts; anything else is null, so the caller falls
+	 * through to Pro's default and, failing that, refuses before contacting Windcave.
+	 *
+	 * @param array $row Ledger row, or Pro's historical stand-in (`legacy-<order id>`, no order_id).
+	 * @return string|null
+	 */
+	private static function legacy_station( array $row ): ?string {
+		if ( isset( $row['order_id'] ) ) {
+			$id = (int) $row['order_id'];
+		} elseif ( preg_match( '/^legacy-(\d+)$/', (string) ( $row['id'] ?? '' ), $m ) ) {
+			$id = (int) $m[1];
+		} else {
+			return null;
+		}
+		$order = wc_get_order( $id );
+		if ( ! $order ) {
+			return null;
+		}
+		$attempts = $order->get_meta( Legacy_Adoption::META_ATTEMPTS );
+		if ( ! is_array( $attempts ) ) {
+			return null;
+		}
+		$stations = ( new Settings() )->station_ids();
+		foreach ( array( 'dps_txn_ref', 'txn_ref' ) as $key ) {
+			foreach ( $attempts as $attempt ) {
+				if ( is_array( $attempt ) && isset( $attempt[ $key ], $attempt['station'] ) && (string) $row['provider_refs']['transaction_id'] === $attempt[ $key ] && in_array( $attempt['station'], $stations, true ) ) {
+					return $attempt['station'];
+				}
+			}
+		}
+		return null;
 	}
 	/**
 	 * Resolve the unsigned hint before querying HIT for a ledger patch.
