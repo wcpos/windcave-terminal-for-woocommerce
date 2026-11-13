@@ -1,9 +1,12 @@
 <?php
 namespace WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Includes;
 
+use WCPOS\WooCommercePOS\WindcaveTerminal\Legacy_Adoption;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Provider_Adapter;
+use WCPOS\WooCommercePOSPro\Payments\OrderPay\Order_Pay_Gateway;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Settings;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Conformance\Windcave_Conformance_Fixture;
+use WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Conformance\Recording_Provider_Adapter;
 require_once __DIR__ . '/Conformance/Windcave_Conformance_Fixture.php';
 
 class Test_Provider_Adapter extends \WP_UnitTestCase {
@@ -395,10 +398,93 @@ class Test_Provider_Adapter extends \WP_UnitTestCase {
 		foreach ( array( 'fixture-hit-key', '4111111111111111', 'PRIVATE NAME', '411111******1111' ) as $secret ) { $this->assertStringNotContainsString( $secret, $log ); }
 	}
 
-	public function test_historical_refund_requires_a_default_station(): void {
-		$this->row['provider_refs'] = array( 'transaction_id' => 'historical-dps' );
-		$this->assertWPError( $this->adapter->refund( $this->row, 9876, '5.00' ) );
+	private function legacy_order( string $transaction_id, $attempts ): \WC_Order {
+		$order = wc_create_order();
+		$order->set_payment_method( Settings::GATEWAY_ID );
+		$order->set_total( '92.95' );
+		$order->set_transaction_id( $transaction_id );
+		if ( null !== $attempts ) { $order->update_meta_data( Legacy_Adoption::META_ATTEMPTS, $attempts ); }
+		$order->save();
+		return $order;
+	}
+	private function attempt( string $txn_ref, string $station, string $status, string $dps_txn_ref ): array {
+		return array( 'txn_ref' => $txn_ref, 'station' => $station, 'amount' => '92.95', 'currency' => 'EUR', 'environment' => 'uat', 'status' => $status, 'dps_txn_ref' => $dps_txn_ref, 'created_at' => gmdate( 'c' ), 'updated_at' => gmdate( 'c' ) );
+	}
+	private function assert_refund_sent_to( $result, string $station, string $dps_txn_ref ): void {
+		$this->assertNotWPError( $result );
+		$this->assertSame( 'succeeded', $result['status'] );
+		$xml = simplexml_load_string( end( $this->fixture->raw_calls )['xml'] );
+		$this->assertSame( $station, (string) $xml->Station );
+		$this->assertSame( $dps_txn_ref, (string) $xml->DpsTxnRef );
+		$this->assertSame( 'Refund', (string) $xml->TxnType );
+	}
+	public function test_historical_refund_uses_the_station_of_the_paid_0x_attempt(): void {
+		$order = $this->legacy_order( 'historical-dps', array( $this->attempt( 'old-1', 'station-1', 'declined', 'declined-dps' ), $this->attempt( 'old-2', 'station-2', 'approved', 'historical-dps' ) ) );
+		$row = Order_Pay_Gateway::historical_row( $order, $this->adapter );
+		$this->assertArrayNotHasKey( 'order_id', $row );
+		$this->fixture->script( 'refund_ok' );
+		$this->assert_refund_sent_to( $this->adapter->refund( $row, 9876, '5.00' ), 'station-2', 'historical-dps' );
+	}
+	public function test_the_recording_adapter_records_the_station_a_0x_refund_goes_to(): void {
+		$order = $this->legacy_order( 'historical-dps', array( $this->attempt( 'old-2', 'station-2', 'approved', 'historical-dps' ) ) );
+		$row = Order_Pay_Gateway::historical_row( $order, $this->adapter );
+		$this->fixture->script( 'refund_ok' );
+		$this->fixture->reset_transcript();
+		$this->assert_refund_sent_to( ( new Recording_Provider_Adapter() )->refund( $row, 9882, '5.00' ), 'station-2', 'historical-dps' );
+		$calls = $this->fixture->transcript();
+		$this->assertCount( 1, $calls );
+		$this->assertSame( 'refund', $calls[0]['op'] );
+		$this->assertStringContainsString( ' reader=station-2 ', $calls[0]['request'] );
+	}
+	public function test_historical_refund_matches_the_txn_ref_when_windcave_gave_no_dps_ref(): void {
+		$order = $this->legacy_order( 'old-3', array( $this->attempt( 'old-3', 'station-2', 'approved', '' ) ) );
+		$row = Order_Pay_Gateway::historical_row( $order, $this->adapter );
+		$this->assertArrayNotHasKey( 'order_id', $row );
+		$this->fixture->script( 'refund_ok' );
+		$this->assert_refund_sent_to( $this->adapter->refund( $row, 9877, '5.00' ), 'station-2', 'old-3' );
+	}
+	public function unusable_legacy_histories(): array {
+		$missing_station = $this->attempt( 'old-1', 'station-1', 'approved', 'historical-dps' );
+		unset( $missing_station['station'] );
+		return array(
+			'no history' => array( null ),
+			'unmatched reference' => array( array( $this->attempt( 'old-1', 'station-1', 'approved', 'other-dps' ) ) ),
+			'string meta' => array( 'garbage' ),
+			'non-array attempts' => array( array( 'garbage', 7 ) ),
+			'station no longer configured' => array( array( $this->attempt( 'old-1', 'station-9', 'approved', 'historical-dps' ) ) ),
+			'empty station' => array( array( $this->attempt( 'old-1', '', 'approved', 'historical-dps' ) ) ),
+			'non-string station' => array( array( array_replace( $this->attempt( 'old-1', 'station-1', 'approved', 'historical-dps' ), array( 'station' => 2 ) ) ) ),
+			'missing station' => array( array( $missing_station ) ),
+		);
+	}
+	/** @dataProvider unusable_legacy_histories */
+	public function test_historical_refund_without_a_usable_recorded_station_never_calls_hit( $attempts ): void {
+		$order = $this->legacy_order( 'historical-dps', $attempts );
+		$row = Order_Pay_Gateway::historical_row( $order, $this->adapter );
+		$this->assertArrayNotHasKey( 'order_id', $row );
+		$result = $this->adapter->refund( $row, 9878, '5.00' );
+		$this->assertWPError( $result );
+		$this->assertSame( 'wcpos_reader_required', $result->get_error_code() );
+		$this->assertSame( 'Configure a default Station in POS settings before refunding this sale.', $result->get_error_message() );
 		$this->assertSame( array(), $this->fixture->raw_calls );
+	}
+	public function test_historical_refund_of_an_unconfigured_station_falls_back_to_the_default(): void {
+		$order = $this->legacy_order( 'historical-dps', array( $this->attempt( 'old-1', 'station-9', 'approved', 'historical-dps' ) ) );
+		$row = Order_Pay_Gateway::historical_row( $order, $this->adapter );
+		$this->assertArrayNotHasKey( 'order_id', $row );
+		$this->fixture->script( 'refund_ok' );
+		$this->assert_refund_sent_to( $this->adapter->refund( $row, 9879, '5.00' ), 'station-1', 'historical-dps' );
+	}
+	public function test_a_1_0_reader_and_dispatch_context_still_win_over_0x_history(): void {
+		$order = wc_get_order( $this->row['order_id'] );
+		$order->update_meta_data( Legacy_Adoption::META_ATTEMPTS, array( $this->attempt( 'old-1', 'station-2', 'approved', 'original-dps' ) ) );
+		$order->save();
+		$ref = $this->start( 'refund_ok' );
+		$row = $this->row;
+		$row['provider_refs'] = array( 'action' => $ref, 'transaction_id' => 'original-dps' );
+		$this->assert_refund_sent_to( $this->adapter->refund( $row, 9880, '5.00' ), 'station-1', 'original-dps' );
+		$row['provider_refs'] = array( 'reader' => 'station-1', 'transaction_id' => 'original-dps' );
+		$this->assert_refund_sent_to( $this->adapter->refund( $row, 9881, '5.00' ), 'station-1', 'original-dps' );
 	}
 
 }

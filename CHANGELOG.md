@@ -2,6 +2,12 @@
 
 All notable changes to Windcave Terminal for WooCommerce will be documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Refunds of sales taken before 1.0 use the Station recorded in the order's 0.x payment history when it is still configured, instead of always needing a default Station (#31).
+
 ## 1.0.0-beta1 - 2026-11-02
 
 First beta of 1.0.0, for the WCPOS 2.0 beta. The extension now runs on WCPOS Pro 2.0's shared payments base and requires WCPOS Pro 2.0.0 or later. The changes are listed under 1.0.0 below.

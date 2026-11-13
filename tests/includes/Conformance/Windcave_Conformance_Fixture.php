@@ -217,7 +217,7 @@ class Recording_Provider_Adapter extends Provider_Adapter {
 	}
 	public function refund( array $row, int $refund_id, string $amount ) {
 		$context = get_option( self::context_key( $row['provider_refs']['action'] ?? '' ), array() );
-		$reader = $row['provider_refs']['reader'] ?? $context['station'] ?? Reader_Curation::settings( Settings::GATEWAY_ID )['default_reader'];
+		$reader = self::refund_station( $row, $context );
 		return $this->record( 'refund', substr( md5( 'refund-' . $refund_id ), 0, 16 ), fn() => parent::refund( $row, $refund_id, $amount ), array_replace( $context, $row, array( 'amount' => $amount ) ), $reader );
 	}
 	public function verify_webhook( \WP_REST_Request $request ) {
