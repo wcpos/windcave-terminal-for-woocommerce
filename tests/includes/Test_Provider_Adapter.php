@@ -6,6 +6,7 @@ use WCPOS\WooCommercePOS\WindcaveTerminal\Provider_Adapter;
 use WCPOS\WooCommercePOSPro\Payments\OrderPay\Order_Pay_Gateway;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Settings;
 use WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Conformance\Windcave_Conformance_Fixture;
+use WCPOS\WooCommercePOS\WindcaveTerminal\Tests\Conformance\Recording_Provider_Adapter;
 require_once __DIR__ . '/Conformance/Windcave_Conformance_Fixture.php';
 
 class Test_Provider_Adapter extends \WP_UnitTestCase {
@@ -423,6 +424,17 @@ class Test_Provider_Adapter extends \WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'order_id', $row );
 		$this->fixture->script( 'refund_ok' );
 		$this->assert_refund_sent_to( $this->adapter->refund( $row, 9876, '5.00' ), 'station-2', 'historical-dps' );
+	}
+	public function test_the_recording_adapter_records_the_station_a_0x_refund_goes_to(): void {
+		$order = $this->legacy_order( 'historical-dps', array( $this->attempt( 'old-2', 'station-2', 'approved', 'historical-dps' ) ) );
+		$row = Order_Pay_Gateway::historical_row( $order, $this->adapter );
+		$this->fixture->script( 'refund_ok' );
+		$this->fixture->reset_transcript();
+		$this->assert_refund_sent_to( ( new Recording_Provider_Adapter() )->refund( $row, 9882, '5.00' ), 'station-2', 'historical-dps' );
+		$calls = $this->fixture->transcript();
+		$this->assertCount( 1, $calls );
+		$this->assertSame( 'refund', $calls[0]['op'] );
+		$this->assertStringContainsString( ' reader=station-2 ', $calls[0]['request'] );
 	}
 	public function test_historical_refund_matches_the_txn_ref_when_windcave_gave_no_dps_ref(): void {
 		$order = $this->legacy_order( 'old-3', array( $this->attempt( 'old-3', 'station-2', 'approved', '' ) ) );
