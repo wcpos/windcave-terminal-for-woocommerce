@@ -290,7 +290,7 @@ class Provider_Adapter extends Abstract_Provider_Adapter {
 		$s = $c ? self::settings_for( $c ) : new Settings();
 		$station = self::refund_station( $row, $c );
 		if ( '' === $station ) {
-			return new \WP_Error( 'wcpos_reader_required', __( 'Configure a default Station in POS settings before refunding this sale.', 'windcave-terminal-for-woocommerce' ), array( 'status' => 400 ) );
+			return new \WP_Error( 'wcpos_reader_required', __( 'No Windcave Station is available to refund this sale. Refund it in the Windcave portal or on the terminal, then record a manual refund in WooCommerce.', 'windcave-terminal-for-woocommerce' ), array( 'status' => 400 ) );
 		}
 		$ref = substr( md5( 'refund-' . $refund_id ), 0, 16 );
 		$client = new HitClient( $s );

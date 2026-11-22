@@ -7,6 +7,7 @@ All notable changes to Windcave Terminal for WooCommerce will be documented in t
 ### Fixed
 
 - Refunds of sales taken before 1.0 use the Station recorded in the order's 0.x payment history when it is still configured, instead of always needing a default Station (#31).
+- When no Windcave Station is available for a refund, the error now says to refund the sale in the Windcave portal or on the terminal and record a manual refund in WooCommerce, instead of pointing to a default Station setting that no screen offers (#31).
 
 ## 1.0.0-beta1 - 2026-11-02
 
