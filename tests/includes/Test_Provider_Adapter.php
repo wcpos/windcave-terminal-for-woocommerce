@@ -465,7 +465,7 @@ class Test_Provider_Adapter extends \WP_UnitTestCase {
 		$result = $this->adapter->refund( $row, 9878, '5.00' );
 		$this->assertWPError( $result );
 		$this->assertSame( 'wcpos_reader_required', $result->get_error_code() );
-		$this->assertSame( 'Configure a default Station in POS settings before refunding this sale.', $result->get_error_message() );
+		$this->assertSame( 'No Windcave Station is available to refund this sale. Refund it in the Windcave portal or on the terminal, then record a manual refund in WooCommerce.', $result->get_error_message() );
 		$this->assertSame( array(), $this->fixture->raw_calls );
 	}
 	public function test_historical_refund_of_an_unconfigured_station_falls_back_to_the_default(): void {
