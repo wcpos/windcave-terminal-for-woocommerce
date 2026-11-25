@@ -2,11 +2,17 @@
 
 All notable changes to Windcave Terminal for WooCommerce will be documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Refunds of sales taken before 1.0 use the Station recorded in the order's 0.x payment history when it is still configured, instead of always needing a default Station (#31).
+
 ## 1.0.0-beta1 - 2026-11-02
 
 First beta of 1.0.0, for the WCPOS 2.0 beta. The extension now runs on WCPOS Pro 2.0's shared payments base and requires WCPOS Pro 2.0.0 or later. The changes are listed under 1.0.0 below.
 
-## 1.0.0 — Unreleased
+## 1.0.0
 
 ### Breaking changes
 
@@ -22,7 +28,7 @@ First beta of 1.0.0, for the WCPOS 2.0 beta. The extension now runs on WCPOS Pro
 - An order locked by a till during the upgrade is retried on the next page load instead of skipped, so its pending attempt is still adopted.
 - 0.x set-aside TxnRefs: adopted on orders still in progress; on any other order status, an order note tells staff to check the portal (never adopted, so a late approval cannot hide a double charge).
 - Real WordPress adapter/gateway/adoption tests, HTTP-backed shared conformance fixture and pinned transcripts including the first HIT prompt exchange.
-- CI against a sibling Pro `next` checkout using the wcpos-mini GitHub App token.
+- CI against a sibling Pro `main` checkout using the wcpos-mini GitHub App token.
 
 ### Verification status
 
